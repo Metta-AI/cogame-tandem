@@ -190,6 +190,60 @@ proc beatsAreTheNotesBeats() =
   removeFile(path)
   report "the precomputed beat list is the note's beat list"
 
+proc deliveryIsABeat() =
+  ## §Record vocabulary B lists `delivered` among the BEATS, and the page has a
+  ## `.beat-marker.delivered` rule plus a `case 'delivered'` banner arm for it.
+  ## The sim enters `Delivered` in step 7 and finishes the game in step 10 of
+  ## the SAME tick, and every caller derives events AFTER the whole tick, so a
+  ## `phase == Delivered` reading is unreachable: the beat has to be derived
+  ## from the delivery itself. A delivered episode must produce exactly one
+  ## `delivered` event, on the frame that carries the delivery (the derived
+  ## events of a tick are stamped with the frame tick, as every other kind is),
+  ## ahead of that same frame's `gameover`.
+  var config = testConfig(seed = 4417231, maxTicks = 2400)
+  var sim = seatedSim(config)
+  var tracker = initBroadcastTracker()
+  var kinds: seq[string] = @[]
+  var delivereds = 0
+  var deliveredTick = -1
+  var deliveredBeforeGameOver = false
+  while sim.phase != GameOver and sim.tickCount < 8000:
+    if sim.carrying():
+      let elapsed = sim.tickCount - sim.gameStartTick
+      if not (sim.hasOrder[0] and sim.hasOrder[1]) or
+          elapsed mod sim.turnTicks() == 0:
+        for seat in Seat:
+          sim.applyRecord(capRecord($orderJson(sim, seat,
+            sim.baselineOrder(seat, "porter", elapsed div sim.turnTicks()))))
+    sim.stepSim()
+    let events = newJArray()
+    sim.stepEvents(tracker, events)
+    var sawDelivered = false
+    for event in events:
+      let k = event["k"].getStr()
+      if k notin kinds:
+        kinds.add(k)
+      if k == "delivered":
+        inc delivereds
+        sawDelivered = true
+        deliveredTick = event["t"].getInt()
+        doAssert event["ticks"].getInt() == int(sim.deliveryTick)
+      if k == "gameover" and sawDelivered:
+        deliveredBeforeGameOver = true
+  doAssert sim.delivered(),
+    "the porter x porter fixture no longer delivers: " & $sim.endRule
+  doAssert delivereds == 1,
+    "a delivered episode emitted " & $delivereds & " `delivered` events" &
+      " (kinds: " & $kinds & ")"
+  doAssert deliveredTick - int(sim.deliveryTick) in 0 .. 1,
+    "the delivered beat is at tick " & $deliveredTick & ", delivery was at " &
+      $sim.deliveryTick
+  doAssert deliveredBeforeGameOver,
+    "the delivered beat does not precede the game-over beat of its tick"
+  doAssert "delivered" in BeatKinds,
+    "`delivered` is not a scrubber beat kind"
+  report "a delivery emits its `delivered` beat"
+
 proc scrapesAndDoorways() =
   ## The stream contains at least one scrape and one doorway beat.
   proc kindsOf(cobalt, rust: string): seq[string] =
@@ -233,5 +287,6 @@ when isMainModule:
   configJsonCarriesTheCourse()
   recordVocabulary()
   beatsAreTheNotesBeats()
+  deliveryIsABeat()
   scrapesAndDoorways()
   echo "test_replay: the replay is self-sufficient and reproduces every hash"

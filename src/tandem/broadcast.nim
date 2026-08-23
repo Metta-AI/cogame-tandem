@@ -35,6 +35,7 @@ type
     lastDoorTick: int32
     lastImpactTick: int32
     lastRegripTick: int32
+    delivered: bool
     turn: int
 
 proc initBroadcastTracker*(): BroadcastTracker =
@@ -54,6 +55,7 @@ proc snapshot(tracker: var BroadcastTracker, sim: SimServer) =
   tracker.lastDoorTick = sim.lastDoorTick
   tracker.lastImpactTick = sim.lastImpactTick
   tracker.lastRegripTick = sim.lastRegripTick
+  tracker.delivered = sim.delivered()
   tracker.prevTick = sim.tickCount
   tracker.prevPhase = sim.phase
   tracker.turn = sim.currentTurn()
@@ -85,6 +87,16 @@ proc stepEvents*(
     return
   let tick = sim.tickCount
 
+  # `delivered` is a DELIVERY transition, not a phase reading. The sim enters
+  # Delivered in step 7 and leaves it for GameOver in step 10 of the SAME tick
+  # (sim.nim), and every caller runs `stepEvents` after the whole tick, so a
+  # `sim.phase == Delivered` arm can never fire. Diffing the delivery itself is
+  # the same shape the `wrecked` beat already uses (a damage delta, not a
+  # phase), and it emits before the game-over beat of that tick.
+  if sim.delivered() and not tracker.delivered:
+    events.add(%*{"t": tick, "k": "delivered",
+      "ticks": int(sim.deliveryTick)})
+
   if sim.phase != tracker.prevPhase:
     events.add(%*{"t": tick, "k": "phase",
       "phase": ($sim.phase).toLowerAscii})
@@ -99,9 +111,6 @@ proc stepEvents*(
         "delivered": sim.delivered(),
         "score": sim.jointScore()
       })
-    elif sim.phase == Delivered:
-      events.add(%*{"t": tick, "k": "delivered",
-        "ticks": int(sim.deliveryTick)})
 
   if sim.doorsCleared > tracker.doorsCleared:
     events.add(%*{"t": tick, "k": "doorway",
