@@ -1,5 +1,5 @@
 # Ignore extensionless files by default: the repo's own extensionless build
-# products (bin/cogball, bin/cogball-player) must never be committed, and the
+# products (bin/tandem, bin/tandem-player) must never be committed, and the
 # starter's rule catches them without a per-name list.
 *
 !*/

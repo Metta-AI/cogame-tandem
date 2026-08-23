@@ -56,7 +56,7 @@ RUN rm -f nim.cfg && \
   test -f replay-viewer/dist/index.html && \
   test -f replay-viewer/dist/league.html && \
   test -s replay-viewer/dist/wire_constants.js && \
-  grep -q '^window.COGBALL_WIRE={' replay-viewer/dist/wire_constants.js && \
+  grep -q '^window.TANDEM_WIRE={' replay-viewer/dist/wire_constants.js && \
   grep -q 'wire_constants.js' replay-viewer/dist/index.html && \
   grep -q 'wire_constants.js' replay-viewer/dist/league.html && \
   test -s replay-viewer/dist/chrome_common.js && \
