@@ -57,7 +57,15 @@ proc routesAnswerAndTheGraceHolds() =
   var thread: Thread[string]
   createThread(thread, serverMain, scoresPath)
 
-  doAssert waitForHealth(60_000), "the server never answered /healthz"
+  # Generous, because the board bake runs BEFORE the listener opens and a
+  # debug build of the pixie bakes takes a minute-plus on a CI runner (586 ms
+  # in release, ~50 s locally in debug). The bound is what matters, not the
+  # number: a server that never listens fails here instead of hanging.
+  let bakeStart = getMonoTime()
+  doAssert waitForHealth(300_000),
+    "the server never answered /healthz in 300 s"
+  echo "    /healthz answered after ",
+    (getMonoTime() - bakeStart).inMilliseconds, " ms (board bake + listen)"
   let health = get("/healthz")
   doAssert health.code == 200 and "healthy" in health.body,
     "/healthz answered " & $health.code & " " & health.body
