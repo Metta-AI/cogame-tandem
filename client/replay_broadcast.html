@@ -2119,7 +2119,10 @@ body[data-embed] #board { top: 0; height: 100%; }
     var row = document.createElement('div');
     row.className = 'feed-row ' + (line.k || '');
     if (line.team) row.style.setProperty('--tc', SIDE_COLOR[line.team] || PAPER);
-    row.textContent = esc(line.text);
+    // textContent, NOT innerHTML, so the string is inert: running it through
+    // esc() first would render an LLM's quote as `&quot;` in the one surface
+    // where a spectator reads the model's own words.
+    row.textContent = line.text;
     pushFeed(row);
   }
   function renderFeed(s) {
