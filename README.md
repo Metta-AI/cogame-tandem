@@ -18,6 +18,8 @@ variable.
 - Wire protocol, replay format and the reply schema: [`docs/PROTOCOL.md`](docs/PROTOCOL.md)
 - How to write a tandem prompt: [`docs/CARRYING.md`](docs/CARRYING.md)
 - Design note: [`docs/plans/2026-08-23-tandem-design.md`](docs/plans/2026-08-23-tandem-design.md)
+- Working in this repo (determinism contract, frozen files, tests): [`AGENTS.md`](AGENTS.md)
+- Tuning the scripted baselines: [`docs/BASELINE-TUNING.md`](docs/BASELINE-TUNING.md)
 
 ## Scoring
 
