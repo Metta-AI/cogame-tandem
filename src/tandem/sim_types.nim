@@ -480,11 +480,11 @@ type
 const
   CobaltColor* = rgba(63, 124, 196, 255)   ## matches data/rig_real/blue.
   RustColor* = rgba(224, 82, 58, 255)      ## matches data/rig_real/red.
-  FloorDark* = rgba(58, 58, 62, 255)
-  FloorLight* = rgba(72, 72, 76, 255)
-  HatchColor* = rgba(214, 176, 62, 190)
-  CouchBody* = rgba(122, 74, 92, 255)
-  CouchTrim* = rgba(158, 104, 122, 255)
+  FloorDark* = rgba(84, 82, 78, 255)
+  FloorLight* = rgba(102, 99, 93, 255)
+  HatchColor* = rgba(226, 190, 78, 210)
+  CouchBody* = rgba(150, 88, 108, 255)
+  CouchTrim* = rgba(188, 124, 144, 255)
   GoalPadColor* = rgba(210, 176, 74, 210)
 
 proc seatText*(seat: Seat): string {.inline.} =

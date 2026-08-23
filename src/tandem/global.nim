@@ -440,10 +440,10 @@ proc bakeFloorImage*(course: Course): Image =
       continue
     ctx.fillStyle =
       case wall.kind
-      of 0: rgba(46, 44, 48, 255)
-      of 1: rgba(58, 54, 52, 255)
-      of 2: rgba(40, 38, 42, 255)
-      else: rgba(74, 66, 58, 255)
+      of 0: rgba(64, 60, 60, 255)
+      of 1: rgba(122, 110, 100, 255)
+      of 2: rgba(52, 50, 54, 255)
+      else: rgba(140, 122, 96, 255)
     ctx.fillRect(rect(bx(x0), by(y0), bx(x1 - x0), by(y1 - y0)))
     ctx.strokeStyle = rgba(24, 22, 24, 220)
     ctx.lineWidth = max(1.0'f32, bx(40_000'i32))
@@ -460,12 +460,12 @@ proc bakeFloorImage*(course: Course): Image =
   # Vignette.
   let vignette = newImage(BoardW, BoardH)
   let vctx = newContext(vignette)
-  vctx.fillStyle = rgba(0, 0, 0, 120)
+  vctx.fillStyle = rgba(0, 0, 0, 62)
   vctx.fillRect(rect(0, 0, float32(BoardW), float32(BoardH)))
   vctx.fillStyle = rgba(0, 0, 0, 0)
   vctx.fillEllipse(vec2(float32(BoardW) / 2, float32(BoardH) / 2),
     float32(BoardW) * 0.62, float32(BoardH) * 0.72)
-  vignette.blur(40.0)
+  vignette.blur(56.0)
   result.draw(vignette)
 
 proc invalidateBoardMapCaches*() =
