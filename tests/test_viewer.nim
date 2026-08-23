@@ -121,6 +121,75 @@ proc beatsAreLabelledButtons() =
     "the spoiler gate does not compare the beat tick to the playhead"
   report "every beat kind is a labelled, clickable button with its own CSS"
 
+proc identHead(text: string): string =
+  ## The leading JS identifier of `text`, or "" if it does not start with one.
+  for ch in text:
+    if ch in IdentChars or ch == '$':
+      result.add ch
+    else:
+      break
+  if result.len > 0 and result[0] in Digits:
+    result = ""
+
+proc noAliasIsShadowed() =
+  ## THE SCOPE CHECK. `beatsAreLabelledButtons` above is a text grep, and a
+  ## text grep cannot see a binding: r2-F1 shipped with all four of its needles
+  ## present and the code they name DEAD. The page's whole per-view script is
+  ## ONE function scope, opened by `(function () {` and closed at the end of
+  ## the file, and it starts by aliasing ~40 names out of the shared chrome
+  ## (`var markBeat = C.markBeat, ...`). `var` and `function` declarations
+  ## share that one scope, so a game-block `function markBeat(...)` below is
+  ## hoisted at scope entry and then OVERWRITTEN by the alias assignment when
+  ## the script runs — every call site silently resolves to chrome_common's
+  ## copy, the game block's version never executes, and nothing in the source
+  ## looks wrong.
+  ##
+  ## So: no name aliased from the shared chrome may also be declared by a
+  ## top-level `function` or `var` of the same IIFE. This is a static
+  ## scope-duplication check — it needs no browser, and it fails on the
+  ## pre-fix page.
+  for path in ["client/replay_broadcast.html", "client/league_replayer.html"]:
+    let page = repoFile(path)
+    let start = page.find("window.ChromeCommon({")
+    doAssert start > 0, path & " no longer builds the shared chrome"
+    var aliases: seq[string] = @[]
+    var declared: seq[string] = @[]
+    for raw in page[start .. ^1].splitLines():
+      # The top level of the IIFE is indented by exactly two spaces; anything
+      # deeper is a nested scope and cannot capture an alias.
+      if not raw.startsWith("  ") or raw.startsWith("   "): continue
+      let line = raw.strip()
+      if line.startsWith("function "):
+        let name = identHead(line[9 .. ^1].strip())
+        if name.len > 0: declared.add name
+      elif line.startsWith("var "):
+        let parts = line[4 .. ^1].split(',')
+        for index, part in parts.pairs:
+          let piece = part.strip()
+          # `var a = 1, b = 2` declares a and b; the tail of an object or array
+          # literal spilled onto the same line declares nothing.
+          if index > 0 and '=' notin piece: continue
+          let name = identHead(piece)
+          if name.len == 0: continue
+          let rhs = if '=' in piece: piece.split('=', 1)[1].strip() else: ""
+          if rhs.startsWith("C.") or rhs.startsWith("C["):
+            aliases.add name
+          else:
+            declared.add name
+    doAssert aliases.len >= 20,
+      "only " & $aliases.len & " chrome aliases found in " & path &
+        " — the scope check is not reading the alias block"
+    doAssert declared.len >= 20,
+      "only " & $declared.len & " top-level declarations found in " & path &
+        " — the scope check is not reading the IIFE"
+    for name in aliases:
+      doAssert name notin declared,
+        "`" & name & "` is BOTH aliased from chrome_common and declared at the" &
+          " top level of the same scope in " & path & ": the alias assignment" &
+          " wins at load and the local declaration is dead code (r2-F1). Give" &
+          " the local one its own name."
+  report "no chrome alias is shadowed by a declaration in the same scope"
+
 proc feedRowsAreNotDoubleEscaped() =
   ## §Viewer readout 9: the match feed is where a spectator reads the LLM's
   ## own words. `esc()` returns HTML entities and `textContent` then displays
@@ -244,6 +313,7 @@ when isMainModule:
   chromeMarkup()
   transportRules()
   beatsAreLabelledButtons()
+  noAliasIsShadowed()
   feedRowsAreNotDoubleEscaped()
   legibleAt360()
   noCtfIdentifiersSurvive()
