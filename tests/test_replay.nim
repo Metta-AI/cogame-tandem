@@ -131,6 +131,7 @@ proc recordVocabulary() =
   discard recordEpisode(path)
   let data = parseReplayBytes(readFile(path))
   var kinds: seq[string] = @[]
+  var dmgs: seq[int] = @[]
   var perSeat = [0, 0]
   var results = 0
   var registers = 0
@@ -155,6 +156,39 @@ proc recordVocabulary() =
     "orders per seat: " & $perSeat
   removeFile(path)
   report "the replay carries register, order and exactly one result record"
+
+proc beatsAreTheNotesBeats() =
+  ## §Record vocabulary B: the scrubber's beat list is `doorway`, `impact`
+  ## (>= 20 points), `drop`, `wrecked`, `delivered`, `gameover`. The sim emits
+  ## an `impact` event from 8 points up (feed + sparks), so the precomputed
+  ## list has to apply the 20-point floor itself — unfiltered, every 8-point
+  ## nudge became a scrubber marker while the page filtered only the LIVE
+  ## events, so the two lists disagreed.
+  ##
+  ## This fixture is chosen because it emits impacts on BOTH sides of the
+  ## floor: 41 and 14 points. With the filter removed the 14 comes back and
+  ## this assertion fires.
+  let path = tempPath("beats.replay")
+  removeFile(path)
+  discard recordEpisode(path, seed = 606606, maxTicks = 2400)
+  let data = parseReplayBytes(readFile(path))
+  var runtime = initReplayRuntime(data, false, false)
+  runtime.player.advanceReplayScan(int.high)
+  var impacts = 0
+  var kinds: seq[string] = @[]
+  for beat in runtime.player.beatEvents:
+    let kind = beat["k"].getStr()
+    if kind notin kinds:
+      kinds.add(kind)
+    doAssert kind in BeatKinds, "`" & kind & "` is not a beat kind"
+    if kind == "impact":
+      inc impacts
+      doAssert beat{"dmg"}.getInt() >= ImpactBeatDamage,
+        "a " & $beat{"dmg"}.getInt() & "-point impact became a scrubber beat"
+  doAssert impacts > 0, "the fixture emitted no impact beat at all: " & $kinds
+  doAssert "gameover" in kinds, "the beat list has no game over: " & $kinds
+  removeFile(path)
+  report "the precomputed beat list is the note's beat list"
 
 proc scrapesAndDoorways() =
   ## The stream contains at least one scrape and one doorway beat.
@@ -198,5 +232,6 @@ when isMainModule:
   summaryIsStrictUtf8()
   configJsonCarriesTheCourse()
   recordVocabulary()
+  beatsAreTheNotesBeats()
   scrapesAndDoorways()
   echo "test_replay: the replay is self-sufficient and reproduces every hash"

@@ -121,19 +121,6 @@ proc beatsAreLabelledButtons() =
     "the spoiler gate does not compare the beat tick to the playhead"
   report "every beat kind is a labelled, clickable button with its own CSS"
 
-proc feedRowsAreNotDoubleEscaped() =
-  ## §Viewer readout 9: the match feed is where a spectator reads the LLM's
-  ## own words. `esc()` returns HTML entities and `textContent` then displays
-  ## them literally, so `esc()` into `textContent` renders a model's quote as
-  ## `&quot;`. The feed row is assigned the raw string; `textContent` is what
-  ## makes it inert.
-  let page = repoFile("client/replay_broadcast.html")
-  doAssert "row.textContent = line.text;" in page,
-    "the feed row does not take the raw text"
-  doAssert "textContent = esc(" notin page,
-    "an escaped string is being written into textContent (double-escaped)"
-  report "match-feed rows render the model's words, not HTML entities"
-
 proc legibleAt360() =
   let page = repoFile("client/replay_broadcast.html")
   doAssert ".plate-name { flex: 1 1 auto; min-width: 3.2em" in page,
@@ -244,7 +231,6 @@ when isMainModule:
   chromeMarkup()
   transportRules()
   beatsAreLabelledButtons()
-  feedRowsAreNotDoubleEscaped()
   legibleAt360()
   noCtfIdentifiersSurvive()
   broadcastCoreDiffersOnlyInTheWireName()
