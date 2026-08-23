@@ -11,6 +11,7 @@ type Window = object
 
 var windows: seq[Window]
 var callLog: seq[seq[int]]
+var userLog: seq[string]      ## the composed user message per call, in order.
 
 proc since(start: MonoTime): int64 =
   (getMonoTime() - start).inMilliseconds
@@ -23,6 +24,7 @@ proc fakeBatch(reply: string, delayMs = 0, fail = false): BatchFn =
       var seats: seq[int] = @[]
       for call in calls:
         seats.add(call.seat)
+        userLog.add(call.user)
       callLog.add(seats)
       let started = since(origin)
       if delayMs > 0:
@@ -191,6 +193,32 @@ proc disconnectedSeatPlaysPorter() =
   doAssert sim.activeOrder[0].source == osLlm, "the seat did not revive"
   report "a seat with no transport plays porter and revives"
 
+proc damageLastTurnIsTheLastTurn() =
+  ## The `damage_last_turn` the SEAT IS SENT is the damage taken since the
+  ## previous turn boundary. The snapshot has to be left behind at the END of a
+  ## turn: taken at the top, the subtraction inside the same call is
+  ## `sim.damage - sim.damage` and the field is structurally 0 forever.
+  userLog.setLen(0)
+  var sim = carryingSim(testConfig())
+  let engine = newEngine(fakeBatch("""{"drive":[1,0],"effort":0.5}"""))
+  engine.turn(sim, 0, 0)
+  engine.applyRecords(sim)
+  doAssert userLog.len == 2
+  doAssert """"damage_last_turn":0""" in userLog[0],
+    "turn 0 was sent damage it had not taken"
+  sim.damage = 31                      ## the 48 ticks between the two turns.
+  engine.turn(sim, 1, 0)
+  engine.applyRecords(sim)
+  doAssert userLog.len == 4
+  doAssert """"damage_last_turn":31""" in userLog[2],
+    "the seat was not told what the last turn cost: " &
+      userLog[2][userLog[2].find("condition") .. ^1][0 .. 200]
+  sim.damage = 44
+  engine.turn(sim, 2, 0)
+  doAssert """"damage_last_turn":13""" in userLog[4],
+    "the third turn did not measure from the second boundary"
+  report "damage_last_turn measures the previous turn"
+
 proc noShowIsDeclared() =
   let path = tempPath("player-failure.json")
   removeFile(path)
@@ -233,5 +261,6 @@ when isMainModule:
   simFaultIsFault()
   hostErrorIsFault()
   disconnectedSeatPlaysPorter()
+  damageLastTurnIsTheLastTurn()
   noShowIsDeclared()
   echo "test_engine: the turn loop is parallel, bounded and degrade-never-hang"

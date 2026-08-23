@@ -200,6 +200,10 @@ proc seatViewJson*(
     "condition": {
       "damage": int(sim.damage),
       "condition_pct": round2(float(sim.conditionPermille()) / 10.0),
+      # The damage taken during the PREVIOUS turn: `damageAtTurnStart` is the
+      # snapshot the last `turn()` left behind, so this is the cost of the 48
+      # ticks since. Snapshotting it at the TOP of `turn()` made the
+      # subtraction `sim.damage - sim.damage` and the field structurally 0.
       "damage_last_turn": int(max(0'i32, sim.damage - engine.damageAtTurnStart)),
       "touching": touching,
       "drops": int(sim.drops)},
@@ -319,7 +323,6 @@ proc turn*(
   ## through `applyRecord`, so the live sim and the replay install bit-identical
   ## integers.
   engine.records.setLen(0)
-  engine.damageAtTurnStart = sim.damage
   let
     deadline = getMonoTime() + initDuration(
       milliseconds = max(1, sim.config.turnBudgetMs))
@@ -461,3 +464,8 @@ proc turn*(
     # The record is the ONE source: the server writes it to the replay AND
     # folds it back through `applyRecord`, which is what INSTALLS the order.
     engine.addRecord(orderJson(sim, seat, resolved[seat]))
+
+  # AFTER both seats' messages were composed, not before: the seat view's
+  # `damage_last_turn` is `sim.damage` now minus `sim.damage` at the previous
+  # turn boundary.
+  engine.damageAtTurnStart = sim.damage
