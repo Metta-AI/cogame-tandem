@@ -96,6 +96,37 @@ proc runeTruncation() =
   doAssert record.runeLen <= MaxOrderRecordRunes
   report "rune-boundary truncation survives a 4-byte emoji on the boundary"
 
+proc capturedErrorsAreRuneSafe() =
+  ## Captured provider text reaches the replay as `fallback.detail`, so the
+  ## slices that cut it down are on RUNE boundaries. A byte slice of a
+  ## non-ASCII body splits a codepoint, and the pad loop walks the multi-byte
+  ## run across every byte offset the caps land on.
+  let client = LlmClient(transport: ltNone)
+  for pad in 0 .. 3:
+    let body = repeat("x", pad) & repeat("\u{1F600}", 400)
+    for code in [401, 429, 500]:
+      var detail = ""
+      try:
+        discard client.completionText(code, body)
+        doAssert false, "a " & $code & " did not raise"
+      except CatchableError as failure:
+        detail = failure.msg
+      doAssert isValidUtf8(detail),
+        "the captured " & $code & " body is not valid UTF-8 at pad " & $pad
+      doAssert isValidUtf8(clipRunes(detail, MaxDetailRunes)),
+        "fallback.detail is not valid UTF-8 at pad " & $pad
+      doAssert detail.runeLen < 500, "the body was not truncated: " &
+        $detail.runeLen & " runes"
+    var noJson = ""
+    try:
+      discard extractJsonObject(repeat("x", pad) & repeat("\u{1F600}", 400))
+      doAssert false, "a brace-free reply did not raise"
+    except CatchableError as failure:
+      noJson = failure.msg
+    doAssert isValidUtf8(noJson), "the no-JSON error is not valid UTF-8"
+    doAssert isValidUtf8(clipRunes(noJson, MaxDetailRunes))
+  report "captured error text is cut on rune boundaries"
+
 proc oversizeRecordStaysJson() =
   ## An over-long record is shrunk STRUCTURALLY, so it is always parseable —
   ## a blind clip would cut the object mid-key and silently drop the order.
@@ -135,6 +166,7 @@ when isMainModule:
   outOfRangeClamps()
   nothingUsable()
   runeTruncation()
+  capturedErrorsAreRuneSafe()
   oversizeRecordStaysJson()
   recordRoundTrips()
   echo "test_orders: parsing is tolerant and truncation is rune-safe"

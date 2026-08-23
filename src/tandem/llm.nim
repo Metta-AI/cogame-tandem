@@ -21,7 +21,7 @@
 ## network in the loop.
 
 import
-  std/[json, os, strutils],
+  std/[json, os, strutils, unicode],
   bitworld/runtime,
   curly,
   sim
@@ -161,12 +161,20 @@ proc requestFor*(client: LlmClient, system, user: string): LlmRequest =
     result.url = AnthropicUrl
   result.body = $body
 
+proc head(text: string, runes: int): string {.inline.} =
+  ## The first `runes` runes of a captured response or error, cut on a RUNE
+  ## boundary. These strings become `fallback.detail`, which reaches the
+  ## replay: slicing a `string` by BYTE index on any path to the replay is
+  ## forbidden (design note §Reply schema), and a provider that answers with a
+  ## non-ASCII body would otherwise be byte-split mid-codepoint here.
+  if text.runeLen <= runes: text else: text.runeSubStr(0, runes)
+
 proc completionText*(client: LlmClient, code: int, body: string): string =
   ## Turns one HTTP response into the model's text, or raises with a short,
   ## quotable reason. Auth failures disable the client for the rest of the
   ## episode so no later turn pays another network wait.
   if code == 401 or code == 403:
-    let detail = body[0 .. min(body.high, 400)]
+    let detail = head(body, 400)
     if "Model access is denied" in body and
         client.tryNextBedrockModel("no model access"):
       raise newException(TandemError, "bedrock model access denied: " & detail)
@@ -174,12 +182,12 @@ proc completionText*(client: LlmClient, code: int, body: string): string =
     raise newException(TandemError,
       "llm auth failed (" & $code & "): " & detail)
   if code == 429:
-    let detail = body[0 .. min(body.high, 300)]
+    let detail = head(body, 300)
     discard client.tryNextBedrockModel("throttled")
     raise newException(TandemError, "llm throttled (429): " & detail)
   if code < 200 or code >= 300:
     raise newException(TandemError, "llm error " & $code & ": " &
-      body[0 .. min(body.high, 300)])
+      head(body, 300))
   let payload = parseJson(body)
   if payload{"stop_reason"}.getStr() == "refusal":
     raise newException(TandemError, "llm refusal")
@@ -190,7 +198,7 @@ proc completionText*(client: LlmClient, code: int, body: string): string =
       result.add(contentBlock{"text"}.getStr())
   if payload{"stop_reason"}.getStr() == "max_tokens" and '{' notin result:
     raise newException(TandemError, "reply cut off at max_tokens before " &
-      "any JSON: " & result[0 .. min(result.high, 160)].replace("\n", " "))
+      "any JSON: " & head(result, 160).replace("\n", " "))
 
 proc extractJsonObject*(text: string): JsonNode =
   ## Pulls the outermost `{...}` object out of a model response, tolerating
@@ -199,9 +207,9 @@ proc extractJsonObject*(text: string): JsonNode =
     start = text.find('{')
     stop = text.rfind('}')
   if start < 0 or stop <= start:
-    var head = text.strip()
-    if head.len > 160:
-      head = head[0 ..< 160] & "..."
+    var prefix = text.strip()
+    if prefix.runeLen > 160:
+      prefix = prefix.runeSubStr(0, 160) & "..."
     raise newException(TandemError,
-      "no JSON object in response: " & head.replace("\n", " "))
+      "no JSON object in response: " & prefix.replace("\n", " "))
   parseJson(text[start .. stop])
