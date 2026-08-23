@@ -170,15 +170,19 @@ proc hostErrorIsFault() =
   doAssert sim.endReason == reasonFault and sim.endRule == erHostError
   report "an unexpected exception yields fault/host_error"
 
-proc disconnectedSeatPlaysPorter() =
+proc noTransportSeatPlaysPorter() =
+  ## No credentials at all: the seat is registered and connected, there is no
+  ## batch, so it falls back instantly with a `no_credentials` record and no
+  ## network wait — and revives the moment a transport exists.
   var sim = carryingSim(testConfig())
   let engine = newTurnEngine(nil, nil)
-  engine.policies[Cobalt] = SeatPolicy(kind: pkLlm, prompt: "x", connected: false)
+  engine.policies[Cobalt] = SeatPolicy(kind: pkLlm, prompt: "x",
+    connected: true)
   engine.policies[Rust] = SeatPolicy(kind: pkScripted, baseline: "porter")
   engine.turn(sim, 0, 0)
   engine.applyRecords(sim)
   doAssert sim.hasOrder[0] and sim.hasOrder[1],
-    "a disconnected seat left a cog unactuated"
+    "a seat with no transport left a cog unactuated"
   var causes: seq[string] = @[]
   for record in engine.records:
     let node = parseJson(record)
@@ -192,6 +196,44 @@ proc disconnectedSeatPlaysPorter() =
   engine.applyRecords(sim)
   doAssert sim.activeOrder[0].source == osLlm, "the seat did not revive"
   report "a seat with no transport plays porter and revives"
+
+proc disconnectedSeatPlaysPorter() =
+  ## The design note's "a seat that disconnects mid-run keeps playing: its
+  ## order source degrades to `porter` and revives on reconnect". The seat has
+  ## a LIVE transport here — what makes it scripted is that its socket is gone,
+  ## and the episode must stop paying LLM latency for it.
+  callLog.setLen(0)
+  var sim = carryingSim(testConfig())
+  let engine = newEngine(fakeBatch("""{"drive":[0,1],"effort":0.9}"""))
+  engine.policies[Cobalt].connected = false      ## the socket closed.
+  # Computed BEFORE the turn: `porterOrder` reads the felt strain, which the
+  # installed orders change.
+  let porter = sim.porterOrder(Cobalt, 0)
+  engine.turn(sim, 0, 0)
+  engine.applyRecords(sim)
+  doAssert sim.hasOrder[0] and sim.hasOrder[1],
+    "a disconnected seat left a cog unactuated"
+  doAssert callLog.len == 1 and callLog[0] == @[ord(Rust)],
+    "the disconnected seat was still queried: " & $callLog
+  doAssert sim.activeOrder[ord(Cobalt)].source == osScripted,
+    "the disconnected seat's order came from " &
+      sourceText(sim.activeOrder[ord(Cobalt)].source)
+  doAssert sim.activeOrder[ord(Cobalt)].driveX == porter.driveX and
+    sim.activeOrder[ord(Cobalt)].effort == porter.effort,
+    "the disconnected seat did not play porter"
+  doAssert sim.activeOrder[ord(Rust)].source == osLlm,
+    "the CONNECTED seat stopped playing its policy"
+  # Reconnect: registration sets `connected` again and the seat revives.
+  let reg = registrationOf($ %*{"type": "register", "prompt": "carry it",
+    "scripted": newJNull(), "policy": "test-llm"}, Cobalt,
+    engine.policies[Cobalt])
+  doAssert reg.ok
+  engine.policies[Cobalt] = reg.policy
+  engine.turn(sim, 1, 0)
+  engine.applyRecords(sim)
+  doAssert sim.activeOrder[ord(Cobalt)].source == osLlm,
+    "the seat did not revive on reconnect"
+  report "a disconnecting seat degrades to porter and revives on reconnect"
 
 proc damageLastTurnIsTheLastTurn() =
   ## The `damage_last_turn` the SEAT IS SENT is the damage taken since the
@@ -260,6 +302,7 @@ when isMainModule:
   wallClockStopIsDeadline()
   simFaultIsFault()
   hostErrorIsFault()
+  noTransportSeatPlaysPorter()
   disconnectedSeatPlaysPorter()
   damageLastTurnIsTheLastTurn()
   noShowIsDeclared()

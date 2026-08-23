@@ -616,6 +616,11 @@ proc runServerLoop*(
             if not replayLoaded and websocket in appState.playerIndices:
               let index = appState.playerIndices[websocket]
               if index >= 0 and index < sim.players.len:
+                # DEGRADE, NEVER HANG: the seat keeps playing, but from the
+                # scripted layer. Without this the turn engine kept issuing
+                # (and waiting on) LLM calls for a seat whose socket was gone.
+                # A reconnect re-registers and revives it.
+                engine.policies[sim.players[index].seat].connected = false
                 sim.recordGameAbandon(index)
                 replayWriter.writeLeave(tickTime(sim.tickCount), index)
                 sim.removePlayerAt(index)
