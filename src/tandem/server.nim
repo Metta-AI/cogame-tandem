@@ -474,8 +474,8 @@ proc runServerLoop*(
   initAppState()
   # The wall-clock budget starts HERE, before the board bake and before the
   # listener opens, so every second the process spends is charged against the
-  # 690 s engine stop and the 720 s settle requirement -- not just the seconds
-  # after setup finished.
+  # 660 s engine stop (`wallClockBudgetSeconds`) and the 720 s settle
+  # requirement -- not just the seconds after setup finished.
   let episodeStart = getMonoTime()
   if saveReplayPath.len > 0 and loadReplayPath.len > 0:
     raise newException(ReplayError, "Cannot save and load a replay together")

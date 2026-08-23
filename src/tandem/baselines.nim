@@ -408,7 +408,7 @@ proc muleOrder*(sim: SimServer, seat: Seat, turn: int): Order =
   result.yieldQ = 0
   result.twist = 0
   result.brace = 0
-  result.note = "straight at the goal, full effort"
+  result.note = "straight at the goal, never yielding"
   result.say = "push"
 
 proc baselineOrder*(

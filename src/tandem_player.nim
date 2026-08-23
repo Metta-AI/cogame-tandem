@@ -118,7 +118,8 @@ when isMainModule:
   let registration = registrationPayload(prompt, scripted, label)
 
   echo "tandem player: connecting (",
-    (if prompt.len > 0: "prompt, " & $prompt.len & " chars"
+    (if prompt.len > 0: "prompt, " & $clipPromptRunes(prompt).runeLen &
+       " runes (cap " & $PromptRuneCap & ")"
      else: "scripted " & scripted), ")"
   let socket = connectWithRetry(url)
   socket.send(chatPacket(registration), BinaryMessage)

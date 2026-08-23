@@ -468,7 +468,6 @@ type
     scrapeTicks*: int32
     impacts*: int32
     lastDamageTurn*: int32
-    damageAtTurnStart*: int32
     scuffs*: seq[ScuffMark]
     sparks*: seq[SparkFx]
     dropFx*: seq[DropFx]
