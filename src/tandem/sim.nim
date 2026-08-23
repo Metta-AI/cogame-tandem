@@ -651,17 +651,11 @@ proc stepCarrying(sim: var SimServer, forces: SeatForces) =
     sim.emitEvent(Wrecked, x = sim.posX, y = sim.posY)
     sim.finishGame(reasonComplete, erWrecked)
     return
-  # `out_of_time` BEFORE the invariant guard, which is the note's order
-  # (Delivered -> wrecked -> wall_clock -> out_of_time -> fault). The wall-clock
-  # stop is checked in the server loop before the tick (EDIT 4), so on the one
-  # tick where a run would end `complete/out_of_time` AND a guard trips, the
-  # legible ending wins instead of `fault/sim_fault` — a `fault` is the flag the
-  # league discards the episode on, so a tie must not manufacture one.
-  if sim.tickCount + 1 - sim.gameStartTick >= sim.config.maxTicks:
-    sim.finishGame(reasonComplete, erOutOfTime)
-    return
   if sim.physicsGuardTripped():
     sim.finishGame(reasonFault, erSimFault)
+    return
+  if sim.tickCount + 1 - sim.gameStartTick >= sim.config.maxTicks:
+    sim.finishGame(reasonComplete, erOutOfTime)
 
 proc step*(sim: var SimServer, forces: SeatForces) =
   ## Advances the sim by one tick. `forces` are the two seats' compiled force
