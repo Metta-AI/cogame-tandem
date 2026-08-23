@@ -1259,9 +1259,16 @@ body[data-embed] #board { top: 0; height: 100%; }
 #arrowlegend .swatch.felt { background: var(--paper); }
 
 /* Scrubber beats: one CSS rule per kind the sim emits, and every marker is a
-   real <button> that seeks on click. */
+   real <button> that seeks on click.
+   The inherited rule above the banner (§transport, kept as it came) also sets
+   `.beat-marker` geometry — `height: 10u` and `transform: translateX(-1px)`
+   for ctf's short kill ticks. Per-property cascade means those two would still
+   win here, leaving a 10u-tall marker nudged a pixel off its tick, so this
+   rule overrides BOTH explicitly: `height: auto` lets `top`/`bottom` span the
+   track and the centring is `margin-left`, not a transform. */
 .beat-marker {
-  position: absolute; top: 0; bottom: 0; width: calc(3 * var(--u));
+  position: absolute; top: 0; bottom: 0; height: auto;
+  width: calc(3 * var(--u)); transform: none;
   margin-left: calc(-1.5 * var(--u)); padding: 0; border: 0;
   background: var(--paper); opacity: 0.85; cursor: pointer; z-index: 4;
 }
