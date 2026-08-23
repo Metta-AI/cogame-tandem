@@ -179,9 +179,14 @@ proc scrapesAndDoorways() =
         if k notin result:
           result.add(k)
   let rough = kindsOf("mule", "mule")
-  doAssert "scrape" in rough or "impact" in rough,
-    "a full mule run produced neither a scrape nor an impact: " & $rough
+  # §Tests 8 asks for at least one SCRAPE, not "a scrape or an impact": an
+  # `or` passes on a run that only ever slams into walls, and the scrape path
+  # (throttled one per disc per 6 ticks) is the one that could silently stop
+  # firing.
+  doAssert "scrape" in rough, "a full mule run produced no scrape: " & $rough
+  doAssert "impact" in rough, "a full mule run produced no impact: " & $rough
   let clean = kindsOf("porter", "porter")
+  doAssert "scrape" in clean, "a full porter run produced no scrape: " & $clean
   doAssert "doorway" in clean, "no doorway was ever cleared: " & $clean
   let kinds = clean
   doAssert "gameover" in kinds
