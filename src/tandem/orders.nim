@@ -305,7 +305,11 @@ proc parseOrder*(
     elif hasPrevious:
       order.driveX = previous.driveX
       order.driveY = previous.driveY
-  elif hasPrevious and (fallback.driveX == 0 and fallback.driveY == 0):
+  elif hasPrevious:
+    # Missing or non-finite `drive`: LAST TURN'S drive, and only then the
+    # scripted fallback's (which `order` already carries, being a copy of it).
+    # Guarding this on a zero fallback inverted the note's precedence, because
+    # the porter fallback always emits a non-zero drive.
     order.driveX = previous.driveX
     order.driveY = previous.driveY
 

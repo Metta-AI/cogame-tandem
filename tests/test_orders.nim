@@ -54,6 +54,25 @@ proc missingAndNonFinite() =
   let kept = parse("""{"drive":[0,0],"effort":0.5}""", previous, true)
   doAssert kept.order.driveX == 0 and kept.order.driveY == 4096,
     "a zero drive did not fall back to last turn's"
+  # MISSING and NON-FINITE take the same branch as [0,0]: last turn's drive
+  # first, the scripted fallback's only when there is no last turn. The
+  # fallback here is `porter`'s real order, whose drive is never zero.
+  var fallback = emptyOrder()
+  fallback.driveX = 2896
+  fallback.driveY = -2896
+  for text in ["""{"effort":0.5}""", """{"drive":[null,1],"effort":0.5}""",
+      """{"drive":"north","effort":0.5}"""]:
+    let repaired = parseOrder(extractJsonObject(text), previous, true,
+      fallback, 3)
+    doAssert repaired.order.driveX == 0 and repaired.order.driveY == 4096,
+      "`" & text & "` kept the scripted fallback's drive (" &
+        $repaired.order.driveX & "," & $repaired.order.driveY &
+        ") instead of last turn's"
+    let noPrevious = parseOrder(extractJsonObject(text), previous, false,
+      fallback, 3)
+    doAssert noPrevious.order.driveX == fallback.driveX and
+      noPrevious.order.driveY == fallback.driveY,
+      "with no previous turn the scripted fallback's drive must stand"
   report "missing and non-finite fields repair to their documented defaults"
 
 proc outOfRangeClamps() =
