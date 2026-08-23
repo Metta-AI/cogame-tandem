@@ -2133,12 +2133,21 @@ body[data-embed] #board { top: 0; height: 100%; }
   }
 
   // ---------- scrubber beats: labelled, clickable buttons ----------
-  // chrome_common ships plain <div> markers; tandem UPGRADES them to real
-  // buttons with an aria-label and a title, and a click seeks to that tick.
+  // chrome_common ships plain <div> markers; tandem places real buttons with an
+  // aria-label and a title instead, and a click seeks to that tick.
+  //
+  // The name is DELIBERATELY not `markBeat`: the inherited alias block at the
+  // top of this IIFE does `var markBeat = C.markBeat`, and `var` and `function`
+  // share one function scope here. A `function markBeat` below would be hoisted
+  // and then immediately overwritten by that assignment at load, so every call
+  // site would resolve to chrome_common's 3-argument <div> builder — unlabeled,
+  // unclickable markers, with this whole block dead. The alias lives above the
+  // banner and stays untouched (AGENTS.md: never edit above it); the game block
+  // owns its own name.
   var beatSeen = {};
   var beatsPlaced = false;
   var beatEls = [];
-  function markBeat(tick, kind, team, label) {
+  function markTandemBeat(tick, kind, team, label) {
     var key = tick + '|' + kind;
     if (beatSeen[key]) return;
     beatSeen[key] = true;
@@ -2195,7 +2204,7 @@ body[data-embed] #board { top: 0; height: 100%; }
       // older server cannot bury the real beats either.
       if (b.k === 'impact' && (b.dmg || 0) < 20) continue;
       var kind = (b.k === 'gameover') ? 'over' : b.k;
-      markBeat(b.t, kind, b.team || '', beatLabel(b));
+      markTandemBeat(b.t, kind, b.team || '', beatLabel(b));
     }
   }
 
@@ -2204,25 +2213,25 @@ body[data-embed] #board { top: 0; height: 100%; }
     switch (e.k) {
       case 'doorway':
         banner('DOORWAY ' + (e.n || '') + ' CLEARED \u2014 ' + (e.cm || '?') + ' cm', 'good');
-        markBeat(e.t, 'doorway', '', beatLabel(e));
+        markTandemBeat(e.t, 'doorway', '', beatLabel(e));
         break;
       case 'drop':
         banner('THUD \u2014 ' + SIDE_LABEL[e.team || 'cobalt'] + ' lost the grip', 'bad');
-        markBeat(e.t, 'drop', e.team || '', beatLabel(e));
+        markTandemBeat(e.t, 'drop', e.team || '', beatLabel(e));
         break;
       case 'impact':
-        if ((e.dmg || 0) >= 20) markBeat(e.t, 'impact', e.team || '', beatLabel(e));
+        if ((e.dmg || 0) >= 20) markTandemBeat(e.t, 'impact', e.team || '', beatLabel(e));
         break;
       case 'delivered':
         banner('DELIVERED', 'good');
-        markBeat(e.t, 'delivered', '', beatLabel(e));
+        markTandemBeat(e.t, 'delivered', '', beatLabel(e));
         break;
       case 'wrecked':
         banner('THE COUCH IS WRECKED', 'bad');
-        markBeat(e.t, 'wrecked', '', beatLabel(e));
+        markTandemBeat(e.t, 'wrecked', '', beatLabel(e));
         break;
       case 'gameover':
-        markBeat(e.t, 'over', '', 'Game over');
+        markTandemBeat(e.t, 'over', '', 'Game over');
         break;
       default: break;
     }

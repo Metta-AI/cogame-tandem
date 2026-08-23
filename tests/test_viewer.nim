@@ -98,8 +98,8 @@ proc transportRules() =
 
 proc beatsAreLabelledButtons() =
   let page = repoFile("client/replay_broadcast.html")
-  doAssert "function markBeat(tick, kind, team, label)" in page,
-    "markBeat does not take a label"
+  doAssert "function markTandemBeat(tick, kind, team, label)" in page,
+    "the game block's beat builder does not take a label"
   doAssert "document.createElement('button')" in page,
     "scrubber beats are not buttons"
   doAssert "mark.setAttribute('aria-label', text)" in page
