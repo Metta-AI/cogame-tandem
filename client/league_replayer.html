@@ -33,6 +33,8 @@
      Mirrors replay_broadcast.html. */
   .red{--tc:var(--red)} .blue{--tc:var(--blue)}
   .green{--tc:var(--green)} .yellow{--tc:var(--yellow)}
+  /* tandem's two carriers ride the same utility. */
+  .cobalt{--tc:var(--blue)} .rust{--tc:var(--red)}
   *{box-sizing:border-box;margin:0;padding:0}
   html,body{height:100%}
   body{background:var(--surround); color:var(--paper); font-family:var(--finefont); overflow:hidden}
@@ -71,7 +73,7 @@
      TOP WALL — match clock centered, with the (possibly long) TEAM
      NAMES flanking it in the corners. The wall band has the horizontal
      room the narrow side columns don't, so long league/policy names
-     live up here. Flag + lives stay in the side-column header below.
+     live up here. The strain gauge stays in the side-column header below.
      ============================================================ */
   #scorebug{display:flex; align-items:center; justify-content:center;
     padding:calc(6*var(--u)) calc(14*var(--u)); gap:calc(16*var(--u)); pointer-events:none}
@@ -114,8 +116,8 @@
   @keyframes clocktick{0%,100%{opacity:.94}50%{opacity:1}}
 
   /* ============================================================
-     KDA PLAQUES (side walls) — team header (flag + NAME inline with
-     LIVES) atop the league roster + standings footer.
+     CARRIER PLAQUES (side walls) — team header (strain bar atop the
+     seat's felt load) over the league roster + standings footer.
      ============================================================ */
   /* one side column holds 1-2 team plaques stacked (2-team play keeps one per
      side; 3-4 teams stack a second below the first) */
@@ -124,47 +126,32 @@
   .plaque{display:flex; flex-direction:column; padding:calc(6*var(--u)) calc(10*var(--u));
     pointer-events:auto; min-height:0; overflow:hidden}
 
-  /* team header block: flag icon + LIVES counter. (Team NAME lives up in
+  /* team header block: the seat's felt strain. (Team NAME lives up in
      the top-wall corners — see .wallname — so long names never truncate.) */
   .team-head{display:flex; align-items:center; gap:calc(9*var(--u)); min-width:0;
     margin-bottom:calc(8*var(--u))}
   .plaque.right .team-head{flex-direction:row-reverse}
-  .team-head .lives-line{display:flex; align-items:baseline; gap:calc(5*var(--u))}
-  .plaque.right .team-head .lives-line{flex-direction:row-reverse}
-  .lives-num{font-family:var(--pixfont); font-size:calc(20*var(--u)); line-height:1;
+  .team-head .strain-line{display:flex; align-items:baseline; gap:calc(5*var(--u))}
+  .plaque.right .team-head .strain-line{flex-direction:row-reverse}
+  .strain-num{font-family:var(--pixfont); font-size:calc(20*var(--u)); line-height:1;
     color:var(--paper); flex:none; text-shadow:0 calc(2*var(--u)) 0 var(--ink), 0 0 calc(9*var(--u)) rgba(0,0,0,.7)}
-  .lives-label{font-family:var(--finefont); font-size:calc(8*var(--u)); letter-spacing:.14em;
+  .strain-label{font-family:var(--finefont); font-size:calc(8*var(--u)); letter-spacing:.14em;
     text-transform:uppercase; color:var(--paper-dim); flex:none; text-shadow:0 calc(1*var(--u)) 0 #000}
-  .team-head.leader .lives-num{animation:leaderpulse 1.9s ease-in-out infinite}
-  /* Team-perk badges + shared-side split meters (chrome_common's
-     renderTeamMeters fills .meters). Split meters keep a FIXED DOM order
-     (icons,num | num,icons) in headline policy order on both plaques —
-     numerals adjacent at the cluster center, badges outside, no
-     side-dependent CSS. Only the classic single team meter (renderTeamMeters
-     stamps .single) mirrors on the right plaque, preserving the old
-     "N Lives" innermost-numeral read the lives-line row-reverse used to
-     provide before the meter markup moved into .meters. */
+  .team-head.leader .strain-num{animation:leaderpulse 1.9s ease-in-out infinite}
   .team-head .meters{display:flex; align-items:baseline; gap:calc(5*var(--u))}
-  .plaque.right .team-head .meters.single{flex-direction:row-reverse}
-  .team-head .pgrp{display:flex; align-items:baseline; gap:calc(4*var(--u))}
-  .team-head .perk-icos{display:flex; align-items:center; gap:calc(3*var(--u));
-    align-self:center}
-  .team-head .perk-ico{display:inline-flex}
-  .team-head .perk-ico svg{width:calc(11*var(--u)); height:calc(11*var(--u)); display:block}
-  .team-head .lives-num.sub{font-size:calc(16*var(--u))}
   @keyframes leaderpulse{0%,100%{text-shadow:0 calc(2*var(--u)) 0 var(--ink)}
     50%{text-shadow:0 0 calc(11*var(--u)) var(--amber)}}
 
-  /* flag-state icon — HOME (on pedestal) / TAKEN (riding a carrier) */
-  .flagicon{position:relative; width:calc(26*var(--u)); height:calc(30*var(--u)); flex:none;
+  /* strain gauge — the felt force in this cog's hands against its grip limit,
+     which is the whole coordination channel. Amber over 80%. */
+  .strainbar{position:relative; width:calc(34*var(--u)); height:calc(30*var(--u)); flex:none;
+    background:rgba(242,232,216,.14); overflow:hidden;
     filter:drop-shadow(0 calc(1*var(--u)) calc(3*var(--u)) rgba(0,0,0,.7))}
-  .flagicon svg{width:100%; height:100%; display:block}
-  .flagicon .cloth{transition:transform 90ms steps(3); transform-box:fill-box; transform-origin:left center}
-  .flagicon.taken .cloth{transform:scaleX(.62) skewX(-8deg)}
-  .flagicon.flip{animation:flagflip 260ms steps(3); transform-box:fill-box; transform-origin:center}
-  @keyframes flagflip{0%{transform:scaleY(.2)}100%{transform:scaleY(1)}}
+  .strainbar i{position:absolute; left:0; right:0; bottom:0; display:block;
+    background:var(--tc, var(--paper)); transition:height 90ms linear}
+  .strainbar.warn i{background:var(--amber)}
   .khead,.krow{display:grid; align-items:center; gap:calc(5*var(--u));
-    grid-template-columns:1fr calc(16*var(--u)) calc(16*var(--u)) calc(34*var(--u))}
+    grid-template-columns:1fr calc(30*var(--u)) calc(24*var(--u))}
   .khead{font-family:var(--finefont); font-size:calc(8*var(--u)); letter-spacing:.08em; text-transform:uppercase;
     color:var(--paper-dim); padding:0 calc(3*var(--u)) calc(4*var(--u)); border-bottom:1px solid rgba(242,232,216,.18)}
   .khead span:not(:first-child){text-align:center}
@@ -172,11 +159,10 @@
     border-radius:calc(2*var(--u)); cursor:pointer}
   .krow:nth-child(odd){background:rgba(242,232,216,.035)}
   .krow:hover{background:rgba(242,232,216,.09)}
-  .krow.dead{opacity:.42}
   .krow.pov{background:rgba(232,163,61,.16); box-shadow:inset 0 0 0 1px rgba(232,163,61,.5)}
   /* The seat # is a name DISAMBIGUATOR, not a stat: it sits glued right after the
      name's ellipsis (small gap, dimmed, tabular) so "Richard Higg… 1" reads as one
-     label. It must NOT drift to the right edge where it reads as a K/D/Lives value. */
+     label. It must NOT drift to the right edge where it reads as a value. */
   .seatno{flex:none; font-variant-numeric:tabular-nums; color:var(--paper-dim);
     font-size:calc(10*var(--u)); opacity:.7}
   .krow .who{display:flex; align-items:center; gap:calc(3*var(--u)); min-width:0}
@@ -184,15 +170,12 @@
      without it the name keeps its full nowrap width and pushes the seat # away. */
   .who .nm{min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
     color:var(--paper-dim); font-size:calc(11*var(--u))}
-  /* the carry heart rides a FIXED-width slot that is always present (empty when not
-     carrying) so a mid-game grab never shifts the name/seat to its left. */
-  .who .carry{flex:none; width:calc(10*var(--u)); text-align:center; color:var(--amber)}
+  /* the policy-kind tag rides a FIXED-width slot that is always present so a
+     late registration never shifts the name to its left. */
+  .who .kind{flex:none; font-family:var(--finefont); font-size:calc(7*var(--u));
+    letter-spacing:.1em; text-transform:uppercase; color:var(--amber); opacity:.85}
   .krow .n{font-variant-numeric:tabular-nums; text-align:center}
   .krow .k{color:var(--paper)} .krow .d{color:var(--paper-dim)} .krow .c{color:var(--amber)}
-  .lives{display:flex; gap:calc(2*var(--u)); justify-content:center; flex-wrap:wrap}
-  .lp{width:calc(5*var(--u)); height:calc(5*var(--u)); border-radius:1px}
-  .plaque .lp.on{background:var(--tc, var(--paper))}
-  .lp.off{background:rgba(242,232,216,.16)}
 
   /* standing footer — sits directly under the roster rows (NOT pinned to the
      column bottom). Hidden entirely when there are no standings, so no empty
@@ -210,7 +193,7 @@
 
   /* ============================================================
      TRANSPORT (bottom wall) — real designed chroma: tbar buttons +
-     speed chips over a full-timeline momentum (lives-lead) graph
+     speed chips over a full-timeline momentum (condition) graph
      with a click-to-seek track + beat markers.
      ============================================================ */
   #transport{display:flex; flex-direction:column; gap:calc(5*var(--u));
@@ -258,23 +241,31 @@
     pointer-events:none; z-index:2}
   .beat-marker{position:absolute; top:0; width:calc(2*var(--u)); height:calc(13*var(--u));
     transform:translateX(-1px); z-index:2}
-  /* kill ticks: short, colored by the killer's team (team-kill/ambiguous stay
-     neutral). Flag beats: colored by the flag's team — steal = full tick with
-     a flag head, return = dimmed (heart snapped home), capture = chunky match
-     point in the capturing team's color. */
-  .beat-marker.kill{background:var(--tc, var(--paper-dim)); height:calc(8*var(--u))}
-  .beat-marker.steal{background:var(--tc, var(--amber))}
-  .beat-marker.steal::after{content:''; position:absolute; left:0; top:0;
-    width:calc(6*var(--u)); height:calc(4*var(--u)); background:inherit}
-  .beat-marker.return{background:var(--tc, var(--paper-dim)); opacity:.45}
-  .beat-marker.capture{background:var(--tc, var(--amber)); width:calc(3*var(--u)); height:calc(16*var(--u))}
-  /* winner cap past the track's right end + "RED WINS" chip in the tbar. */
+  /* tandem's beat kinds: a doorway cleared, an impact worth >= 20 condition,
+     a dropped couch, the wreck, the delivery and the final whistle. The team
+     tint (cobalt/rust) marks whose grip let go on a drop. */
+  .beat-marker.doorway{background:var(--green)}
+  .beat-marker.impact{background:var(--amber)}
+  .beat-marker.drop{background:var(--red); height:calc(16*var(--u))}
+  .beat-marker.wrecked{background:#ff5a3c; width:calc(3*var(--u)); height:calc(16*var(--u))}
+  .beat-marker.delivered{background:#9ee37d; width:calc(3*var(--u)); height:calc(16*var(--u))}
+  .beat-marker.over{background:var(--paper); width:calc(3*var(--u)); height:calc(16*var(--u))}
+  .beat-marker.cobalt{box-shadow:inset 0 calc(3*var(--u)) 0 var(--blue)}
+  .beat-marker.rust{box-shadow:inset 0 calc(3*var(--u)) 0 var(--red)}
+  /* verdict cap past the track's right end + the ending chip in the tbar. */
   .scrub-win{display:none; position:absolute; right:calc(-6*var(--u)); top:calc(4*var(--u));
     width:calc(8*var(--u)); height:calc(14*var(--u)); z-index:3; border-radius:calc(2*var(--u))}
   .scrub-win.show{display:block; background:var(--tc, var(--paper-dim))}
   .win-chip{display:none; font-family:var(--pixfont); font-size:calc(10*var(--u));
     padding:0 calc(6*var(--u)); white-space:nowrap}
   .win-chip.show{display:inline; color:var(--tc, var(--paper-dim))}
+  /* one tint per ending (there is no winner in a cooperative match) */
+  .scrub-win.delivered, .win-chip.delivered{--tc:var(--green)}
+  .scrub-win.wrecked, .win-chip.wrecked{--tc:var(--red)}
+  .scrub-win.out_of_time, .win-chip.out_of_time,
+  .scrub-win.wall_clock, .win-chip.wall_clock{--tc:var(--amber)}
+  .scrub-win.sim_fault, .win-chip.sim_fault,
+  .scrub-win.host_error, .win-chip.host_error{--tc:var(--paper-dim)}
 
   /* connection status toast */
   #status{position:absolute; z-index:9; left:50%; top:calc(50% - 10px); transform:translate(-50%,-50%);
@@ -321,7 +312,7 @@
       <button class="tbtn" id="btn-end" title="Jump to end (e)">|▸</button>
       <button class="tbtn" id="btn-loop" title="Loop (r)">↻</button>
       <button class="tbtn" id="btn-skip" title="Auto-skip lulls (f)">▸▸</button>
-      <button class="tbtn" id="btn-spoilers" title="Spoilers: kills / flag story / winner on the timeline ahead of the playhead (o)">spoilers</button>
+      <button class="tbtn" id="btn-spoilers" title="Spoilers: doorways / drops / the ending on the timeline ahead of the playhead (o)">spoilers</button>
       <span class="ffwd-chip" id="ffwd-chip">▸▸ SKIPPING LULL</span>
       <span class="win-chip" id="win-chip"></span>
       <span class="tick-clock" id="tick-clock">0 / 0</span>
@@ -331,7 +322,7 @@
     <div class="scrub" id="scrub">
       <svg class="momentum" id="momentum" viewBox="0 0 1000 100"
            preserveAspectRatio="none" aria-hidden="true"></svg>
-      <span class="momentum-label">LIVES LEAD</span>
+      <span class="momentum-label">CONDITION</span>
       <div class="scrub-track"></div>
       <div class="scrub-fill" id="scrub-fill"></div>
       <div id="lulls"></div>
@@ -373,11 +364,11 @@
   var otherTeam=C.otherTeam, stripSeatSuffix=C.stripSeatSuffix;
   var teamPolicies=C.teamPolicies, teamName=C.teamName, teamHeadline=C.teamHeadline;
   var rosterName=C.rosterName, setName=C.setName, esc=C.esc, fmt=C.fmt;
-  var setHandicap=C.setHandicap, renderTeamMeters=C.renderTeamMeters;
+  var setHandicap=C.setHandicap;
   var togglePov=C.togglePov, renderClock=C.renderClock, renderTransport=C.renderTransport;
   var ingestLullSpans=C.ingestLullSpans, renderLullSpans=C.renderLullSpans;
-  var markBeat=C.markBeat, killMarkerTeam=C.killMarkerTeam, renderBeatMarkers=C.renderBeatMarkers;
-  var captureTeam=C.captureTeam, ingestBeats=C.ingestBeats, setVerdict=C.setVerdict;
+  var markBeat=C.markBeat, renderBeatMarkers=C.renderBeatMarkers;
+  var ingestBeats=C.ingestBeats;
   var ingestLeadSeries=C.ingestLeadSeries, recordMomentum=C.recordMomentum;
   var getSpoilers=C.getSpoilers, setSpoilers=C.setSpoilers;
   var renderMomentum=C.renderMomentum;
@@ -395,7 +386,6 @@
   // Engine-authoritative wire constants (read via the shared chrome; the
   // fallback literals for raw file:// opens live in chrome_common.js).
   var WIRE=C.WIRE, SPEEDS=C.SPEEDS, FPS=C.FPS;
-  var MAXLIVES=3;   // per player (3 lives each); refined up if the stream disagrees
 
   // Proxy-aware route base. Observatory serves this shell (and every /client/*
   // asset + the embedded board) behind a per-session proxy prefix, e.g.
@@ -605,25 +595,19 @@
   }
   // (esc / setName live in the shared chrome — chrome_common.js)
 
-  // ---- flag icon svg (HOME/TAKEN are the only two states) ------------------
-  // The carrier's identity is shown by the ♥ marker in the roster table, so the
-  // flag icon carries no name tag here — just the home/taken cloth state.
-  function buildFlag(el, color){
-    el.innerHTML =
-      '<svg viewBox="0 0 26 30" aria-hidden="true">' +
-      '<rect x="4" y="2" width="2" height="26" fill="#2a1f16"/>' +
-      '<g class="cloth"><path d="M6 3 L22 3 L18 9 L22 15 L6 15 Z" fill="'+color+'"/></g>' +
-      '<rect x="1" y="26" width="10" height="3" fill="#8a7f72"/>' +
-      '</svg>';
+  // ---- strain gauge (the felt force in one cog's hands) --------------------
+  // Tandem ships no lives, no flag and no perks: `teams.<side>` carries
+  // {strain, limit, load, headroom, slip, drops, blame, policies}. The wall
+  // plaque's headline is the gauge, because the strain IS the coordination
+  // channel — it is the only thing a cog learns about its partner.
+  function buildStrain(el){
+    el.innerHTML = '<i></i>';
   }
-  function updateFlag(id, team, tstate, s){
-    var el=$(id);
-    /* GV32: 'captured' (heart retired, team eliminated) reads off-pedestal
-       like 'taken'. */
-    var taken = tstate.flag==='taken' || tstate.flag==='captured';
-    var was = el.classList.contains('taken');
-    el.classList.toggle('taken', taken);
-    if (was!==taken){ el.classList.remove('flip'); void el.offsetWidth; el.classList.add('flip'); }
+  function updateStrain(id, tstate){
+    var el=$(id); if(!el) return;
+    var load=Math.max(0, Math.min(100, tstate.load||0));
+    el.classList.toggle('warn', load>=80);
+    el.firstChild.style.height = load + '%';
   }
 
   // Rebuild the wall-corner names + side plaques when the active team set
@@ -657,16 +641,16 @@
       pl.id='kda-'+team;
       pl.innerHTML=
         '<div class="team-head '+team+'" data-team="'+team+'">'+
-        '<div class="flagicon" id="flag-'+team+'"></div>'+
-        '<div class="lives-line">'+
+        '<div class="strainbar" id="strain-'+team+'"></div>'+
+        '<div class="strain-line">'+
         '<span class="meters" id="meters-'+team+'"></span>'+
         '</div>'+
         '</div>'+
-        '<div class="khead"><span>Name</span><span>K</span><span>D</span><span>Lives</span></div>'+
+        '<div class="khead"><span>Name</span><span>Strain</span><span>Blame</span></div>'+
         '<div id="rows-'+team+'"></div>'+
         '<div class="pfoot" id="foot-'+team+'"></div>';
       cols[side].appendChild(pl);
-      buildFlag($('flag-'+team), teamCol(team) || AMBER);
+      buildStrain($('strain-'+team));
       // clicking a KDA row → POV lens on that player (toggles)
       $('rows-'+team).addEventListener('click', function(ev){
         var row=ev.target.closest('.krow'); if(!row) return;
@@ -679,21 +663,24 @@
     var teams=activeTeams(s);
     ensureShellTeams(teams);
     var tr=s.teams||{};
-    var lives={};
-    teams.forEach(function(team){ lives[team]=(tr[team]&&tr[team].lives)||0; });
     teams.forEach(function(team){
+      var tstate=tr[team]||{};
       setName('name-'+team, teamName(s, team, team.toUpperCase()));
       setHandicap('hcap-'+team, s, team);
-      // Life meter(s) + perk badges — shared chrome (chrome_common.js
-      // renderTeamMeters): the classic single "Lives N", or per-policy split
-      // meters on a shared side.
-      renderTeamMeters($('meters-'+team), s, team);
-      updateFlag('flag-'+team, team, tr[team]||{}, s);
-      // leader pulse when this team leads EVERY rival by >= 3
-      var bestRival=-Infinity;
-      teams.forEach(function(o){ if(o!==team) bestRival=Math.max(bestRival, lives[o]); });
+      // Strain gauge + the two numerals the wall can read from across a room:
+      // the felt force in newtons and the couch's condition.
+      updateStrain('strain-'+team, tstate);
+      var meters=$('meters-'+team);
+      if(meters){
+        var html='<span class="strain-num">'+(tstate.strain||0)+'</span>'+
+          '<span class="strain-label">N felt</span>'+
+          '<span class="strain-label">drops '+(tstate.drops||0)+'</span>';
+        if(meters.innerHTML!==html) meters.innerHTML=html;
+      }
+      // A cog whose grip is running out is the drama; pulse the numeral the
+      // way the CTF shell pulsed a life lead.
       var headEl=document.querySelector('.team-head[data-team="'+team+'"]');
-      if(headEl) headEl.classList.toggle('leader', lives[team]-bestRival>=3 && s.ph==='playing');
+      if(headEl) headEl.classList.toggle('leader', (tstate.load||0)>=80 && s.ph!=='gameover');
     });
   }
 
@@ -713,26 +700,17 @@
     var who=document.createElement('span'); who.className='who';
     var nm=document.createElement('span'); nm.className='nm';
     var seatno=document.createElement('span'); seatno.className='seatno';
-    var carry=document.createElement('span'); carry.className='carry';
-    who.appendChild(nm); who.appendChild(seatno); who.appendChild(carry);
-    var k=document.createElement('span'); k.className='n k';
-    var d=document.createElement('span'); d.className='n d';
-    var lives=document.createElement('span'); lives.className='lives';
-    row.appendChild(who); row.appendChild(k); row.appendChild(d); row.appendChild(lives);
+    var kind=document.createElement('span'); kind.className='kind';
+    who.appendChild(nm); who.appendChild(seatno); who.appendChild(kind);
+    var strain=document.createElement('span'); strain.className='n k';
+    var blame=document.createElement('span'); blame.className='n d';
+    row.appendChild(who); row.appendChild(strain); row.appendChild(blame);
     el.appendChild(row);
-    return {row:row, nm:nm, seatno:seatno, carry:carry, k:k, d:d, lives:lives, pipKey:''};
-  }
-  function setLivePips(cell, n, max){
-    var key=n+'/'+max;
-    if (cell.pipKey===key) return;      // only rebuild when lives or max changed
-    cell.pipKey=key;
-    var o='';
-    for (var i=0;i<max;i++) o+='<span class="lp '+(i<n?'on':'off')+'"></span>';
-    cell.lives.innerHTML=o;
+    return {row:row, nm:nm, seatno:seatno, kind:kind, strain:strain, blame:blame};
   }
   function renderRows(s, team, el){
     var r=(s.roster||[]).filter(function(p){return p.team===team;}).slice().sort(function(a,b){return a.s-b.s;});
-    var mx=MAXLIVES; r.forEach(function(p){ if(p.lives>mx) mx=p.lives; });
+    var tstate=(s.teams||{})[team]||{};
     var key=r.map(function(p){return p.s;}).join(',');
     if (el._rowKey!==key){          // roster set changed → (re)build the row DOM once
       el.innerHTML=''; el._cells={};
@@ -752,12 +730,15 @@
       if (c.nm.textContent!==who) c.nm.textContent=who;
       var seatTxt=String(seat);
       if (c.seatno.textContent!==seatTxt) c.seatno.textContent=seatTxt;
-      var heart=p.carry?'♥':'';
-      if (c.carry.textContent!==heart) c.carry.textContent=heart;
-      var kTxt=String(p.k||0); if (c.k.textContent!==kTxt) c.k.textContent=kTxt;
-      var dTxt=String(p.d||0); if (c.d.textContent!==dTxt) c.d.textContent=dTxt;
-      setLivePips(c, p.lives||0, mx);
-      c.row.classList.toggle('dead', !p.alive);
+      // `llm` or `scripted` — which kind of policy is on this handle.
+      var kind=p.kind||'';
+      if (c.kind.textContent!==kind) c.kind.textContent=kind;
+      // Both stats are per SEAT and the seat owns the whole side, so every row
+      // on a plaque reads its own handle's felt force and scuff blame.
+      var strainTxt=(tstate.strain||0)+' N';
+      if (c.strain.textContent!==strainTxt) c.strain.textContent=strainTxt;
+      var blameTxt=String(tstate.blame||0);
+      if (c.blame.textContent!==blameTxt) c.blame.textContent=blameTxt;
       c.row.classList.toggle('pov', s.pov!=null && s.pov===p.s);
     });
   }
@@ -781,10 +762,10 @@
     });
   }
 
-  // ---- transport / lull shading / beat markers / beats + verdict (shared
-  // chrome: renderTransport, ingestLullSpans, renderLullSpans, markBeat,
-  // teamOf, killMarkerTeam, otherTeam, captureTeam, renderBeatMarkers,
-  // ingestBeats, setVerdict — chrome_common.js) ------------------------------
+  // ---- transport / lull shading / beat markers (shared chrome:
+  // renderTransport, ingestLullSpans, renderLullSpans, markBeat,
+  // renderBeatMarkers — chrome_common.js). The beat VOCABULARY and the
+  // verdict are tandem's and live in onFrame below. ------------------------
 
   // ---- momentum graph (shared chrome: ingestLeadSeries / recordMomentum /
   // renderMomentum and their state — chrome_common.js) --------------------
@@ -807,7 +788,7 @@
     renderClock(s);
     renderTransport(s);
 
-    // KDA rosters (league-specific); team name/lives ride the header above them
+    // Rosters (league-specific); the team headline rides the wall above them
     var teams=activeTeams(s);
     teams.forEach(function(team){
       var rowsEl=$('rows-'+team);
@@ -815,24 +796,63 @@
     });
     renderStandings(teams);
 
-    // beat markers from events; momentum from lead series
+    // beat markers from events; momentum from the condition curve
     if (s.events && s.events.length && !jumped){
       for (var i=0;i<s.events.length;i++){
         var e=s.events[i];
-        if (e.k==='kill') markBeat(e.t,'kill', killMarkerTeam(e, s));
-        else if (e.k==='steal') markBeat(e.t,'steal', e.flag);
-        else if (e.k==='return') markBeat(e.t,'return', e.flag);
-        else if (e.k==='capture') markBeat(e.t,'capture', captureTeam(s, e));
+        // Tandem's beat vocabulary (design note §Record vocabulary B). The
+        // >= 20 condition floor is the same one the board applies, so the
+        // shell's scrubber and the board's agree marker for marker.
+        if (e.k==='doorway') markBeat(e.t,'doorway','');
+        else if (e.k==='drop') markBeat(e.t,'drop', e.team||'');
+        else if (e.k==='impact' && (e.dmg||0)>=20) markBeat(e.t,'impact', e.team||'');
+        else if (e.k==='delivered') markBeat(e.t,'delivered','');
+        else if (e.k==='wrecked') markBeat(e.t,'wrecked','');
+        else if (e.k==='gameover') markBeat(e.t,'over','');
       }
     }
     ingestLeadSeries(s);
     ingestLullSpans(s);
     ingestBeats(s);
+    ingestTandemBeats(s);
     recordMomentum(s);
-    if (s.ph==='gameover' && s.over) setVerdict(s.over);
+    renderVerdict(s);
 
     lastTick = s.t;
     hideStatus();
+  }
+
+  // The whole-match beat list rides the first HUD frame, so place it up front
+  // and the scrubber tells the story before playback gets there — the same
+  // thing the board does. chrome_common's own `ingestBeats` above only knows
+  // ctf's flag beats; its `markBeat` dedups by tick|kind, so the live events
+  // re-firing over these is harmless.
+  var shellBeatsPlaced=false;
+  function ingestTandemBeats(s){
+    if (shellBeatsPlaced || !s.beats || !s.beats.length) return;
+    shellBeatsPlaced=true;
+    for (var i=0;i<s.beats.length;i++){
+      var b=s.beats[i];
+      if (b.k==='impact' && (b.dmg||0)<20) continue;
+      markBeat(b.t, (b.k==='gameover')?'over':b.k, b.team||'');
+    }
+  }
+
+  // The verdict of a cooperative match is its ENDING, not a winner:
+  // `over.winner` is "" and chrome_common's setVerdict returns on that, so the
+  // shell drives the cap and the chip itself, exactly as the board does.
+  var VERDICT_LABEL={delivered:'DELIVERED', wrecked:'COUCH WRECKED',
+    out_of_time:'OUT OF TIME', wall_clock:'TIME BUDGET',
+    sim_fault:'FAULT', host_error:'FAULT'};
+  function renderVerdict(s){
+    var over=(s.ph==='gameover') ? s.over : null;
+    var rule=over ? (over.endRule||'') : '';
+    var label=over ? (VERDICT_LABEL[rule]||'GAME OVER') : '';
+    var cap=$('scrub-win'), chip=$('win-chip');
+    cap.className='scrub-win'+(label?' show '+rule:'');
+    cap.title=label;
+    chip.textContent=label;
+    chip.className='win-chip'+(label?' show '+rule:'');
   }
 
   // ==========================================================================
@@ -864,7 +884,7 @@
     sendSeek(st + Math.round(frac*(mx-st)));
   });
 
-  // (KDA row → POV click handlers are attached per generated roster table in
+  // (roster row → POV click handlers are attached per generated table in
   // ensureShellTeams.)
 
   var statusTimer=null, failTimer=null;

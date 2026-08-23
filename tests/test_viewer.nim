@@ -211,6 +211,42 @@ proc verdictCapCarriesTheEnding() =
     "the cap does not use the class its inherited CSS rule needs (.show)"
   report "the scrubber's verdict cap carries the ending, not a winner"
 
+proc leagueShellReadsTandemsStream() =
+  ## `client/league_replayer.html` is the OTHER page the game pod serves
+  ## (`server.nim` LeagueReplayerPath = /client/league): the wall-mounted
+  ## league theater with the board embedded in an iframe. It is the starter's
+  ## shell — the walls, the layout, the postMessage bridge and the transport
+  ## drive are kept as they came — but its READOUTS have to be tandem's,
+  ## because tandem's stream carries no lives, no flag, no perks and none of
+  ## ctf's beat kinds: driven by a tandem frame it rendered blank furniture and
+  ## an empty scrubber.
+  let shell = repoFile("client/league_replayer.html")
+  # The starter's shell, not a rewrite: the wall geometry, the bridge and
+  # the transport drive are still here.
+  for keep in ["function buildWalls(", "function layout()",
+               "m.src!=='tandem-replay'", "function sendCmd(cmd)",
+               "id=\"kda-l\"", "id=\"kda-r\"", "id=\"scrub\"",
+               "function renderStandings(teams)"]:
+    doAssert keep in shell, "the league shell lost `" & keep & "`"
+  # ctf's readouts are gone, not left to render zeros.
+  for gone in ["flagicon", "lives-num", "setLivePips", "renderTeamMeters",
+               "MAXLIVES", "killMarkerTeam", "captureTeam",
+               "markBeat(e.t,'kill'", "markBeat(e.t,'steal'"]:
+    doAssert gone notin shell,
+      "the league shell still carries ctf's `" & gone & "`"
+  # ...and tandem's are in their place.
+  for want in ["markBeat(e.t,'doorway'", "markBeat(e.t,'drop'",
+               "markBeat(e.t,'impact'", "markBeat(e.t,'delivered'",
+               "markBeat(e.t,'wrecked'", "markBeat(e.t,'over'",
+               "function ingestTandemBeats(s)", "function updateStrain(",
+               "class=\"strainbar\"", "<span>Strain</span>",
+               "<span>Blame</span>", "function renderVerdict(s)"]:
+    doAssert want in shell, "the league shell is missing `" & want & "`"
+  for kind in BeatKindsEmitted:
+    doAssert (".beat-marker." & kind) in shell,
+      "the league shell has no CSS for the `" & kind & "` beat kind"
+  report "the league shell reads tandem's stream, not ctf's"
+
 proc feedRowsAreNotDoubleEscaped() =
   ## §Viewer readout 9: the match feed is where a spectator reads the LLM's
   ## own words. `esc()` returns HTML entities and `textContent` then displays
@@ -336,6 +372,7 @@ when isMainModule:
   beatsAreLabelledButtons()
   noAliasIsShadowed()
   verdictCapCarriesTheEnding()
+  leagueShellReadsTandemsStream()
   feedRowsAreNotDoubleEscaped()
   legibleAt360()
   noCtfIdentifiersSurvive()
