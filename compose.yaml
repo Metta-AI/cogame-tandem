@@ -1,0 +1,7 @@
+services:
+  tandem:
+    image: coworld-tandem:latest
+    platform: linux/amd64
+    build:
+      context: .
+      network: host

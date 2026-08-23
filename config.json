@@ -1,0 +1,21 @@
+{
+  "seed": 4417231,
+  "num_agents": 2,
+  "minPlayers": 2,
+  "maxTicks": 2400,
+  "maxGames": 1,
+  "turnTicks": 48,
+  "turnBudgetMs": 7000,
+  "attempt1Ms": 4500,
+  "retryMs": 2000,
+  "minBatchSpacingMs": 4500,
+  "wallClockBudgetSeconds": 660,
+  "lobbyJoinTimeoutTicks": 2400,
+  "startWaitTicks": 24,
+  "gameOverTicks": 48,
+  "regripTicks": 48,
+  "fastMode": true,
+  "showPlayerLabels": false,
+  "players": [{"name": "Cobalt"}, {"name": "Rust"}],
+  "slots": [{"alias": "Cobalt"}, {"alias": "Rust"}]
+}

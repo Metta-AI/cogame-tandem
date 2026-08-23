@@ -1,0 +1,525 @@
+{
+  "$schema": "https://softmax.com/schemas/coworld-manifest-v1.json",
+  "episode_timeout_minutes": 20,
+  "tags": [
+    "physics",
+    "cooperative",
+    "carrying",
+    "continuous",
+    "llm"
+  ],
+  "game": {
+    "name": "tandem",
+    "owner": "daveey@gmail.com",
+    "description": "Two cogs, one couch, no channel: they are rigidly gripped to opposite handles and must carry it through a procedurally generated warehouse. The couch obeys the SUM of their forces, so coordination happens through the physics itself. A policy is just a prompt.",
+    "runnable": {
+      "type": "game",
+      "image": "{{TANDEM_IMAGE}}",
+      "run": [
+        "/bin/tandem"
+      ],
+      "env": {
+        "ANTHROPIC_API_KEY_URI": "secret://coworld/tandem/anthropic_api_key"
+      },
+      "source_url": "https://github.com/Metta-AI/cogame-tandem/tree/main"
+    },
+    "replay_viewer": {
+      "bundle": "static-replay-viewer"
+    },
+    "protocols": {
+      "player": {
+        "type": "text",
+        "value": "Two seats, one couch. Each seat connects to\nws://<host>:<port>/player?slot=N&token=T (0 = Cobalt, the fore handle;\n1 = Rust, the aft handle) and immediately sends ONE Sprite v1 chat message\ncarrying its registration:\n\n  {\"type\":\"register\",\"prompt\":\"<strategy text or empty>\",\n   \"scripted\":\"porter\"|\"mule\"|null,\"policy\":\"<free label>\"}\n\nA seat with a non-empty `prompt` is an LLM seat; otherwise it is the named\nscripted baseline, defaulting to `porter`. Registration is re-sent once after\nthe first received frame, in case the first send raced slot registration. The\nserver consumes it, records a REDACTED `register` replay record (policy label\nand kind, never the prompt) and drops any other chat text.\n\nAfter that the seat only RECEIVES: one binary Sprite v1 frame per tick, and it\nanswers each with the Ready packet (0x85). PLAYER SOCKETS CONTRIBUTE NO INPUT --\nthe server computes both force vectors from the orders.\n\nEvery 48 ticks (2.0 s of sim time) the GAME SERVER asks both seats' LLMs, in ONE\nparallel batch, for a single JSON object:\n\n  {\"note\":\"<=160 chars\",\"drive\":[x,y],\"effort\":0..1,\"yield\":0..1,\n   \"twist\":-1..1,\"brace\":0..1,\"say\":\"<=48 chars\"}\n\n`drive` is a direction in view coordinates (metres, world centre origin, y up);\nits magnitude is ignored. `effort` scales the push along it (1 = 600 N).\n`yield` is the compliance knob: at 1 the seat pushes 80 % of the way the force\nit FEELS is already pulling it. `twist` rotates the couch (+1 = ccw); a positive\ntwist from both seats is a pure couple. `brace` halves the push and raises the\ngrip limit. `note` and `say` go to the spectator feed and are NEVER delivered to\nthe partner: there is no communication channel of any kind.\n\nParsing is tolerant (fences, prose prefixes, numeric strings, `drive` as an\nobject, integer percentages), a failed attempt is retried once, and two failures\nfall back to the `porter` scripted order with a `fallback` record. Every\nrecorded string is truncated on RUNE boundaries."
+      },
+      "global": {
+        "type": "text",
+        "value": "GET /global (websocket) is the spectator snapshot: the same\nSprite v1 binary stream as a seat's, with no self markers, plus the broadcast\nchrome channel -- a reserved never-drawn 1x1 sprite (id 4090) whose LABEL\ncarries the chrome JSON frame (tick, phase, transport state, condition,\nprogress, doors cleared, both carriers' strain/grip/blame, the roster with REAL\npolicy names, the derived beat events, the whole-run condition curve and the\nend-card state).\n\nGET /healthz answers `healthy`. GET /client/global, GET /client/player and\nGET /client/replay serve real HTML pages and none of them opens the player\nsocket. GET /replay-data returns the raw `.replay` bytes. /healthz and /global\nkeep answering for a bounded ~20 s after the artifacts are written.\n\nREPLAYS ARE A STATIC WASM BUNDLE, NEVER A POD. The repo ships\ntools/build_replay_viewer.sh, which compiles the SAME src/tandem/sim.nim and\nsrc/tandem/control.nim to wasm32 through emscripten and bundles them with the\nchrome; the manifest declares \"replay_viewer\": {\"bundle\":\n\"static-replay-viewer\"}. The browser re-simulates every tick from the recorded\norders and checks its own gameHash against the recorded chain, so everything the\nviewer needs is in the replay bytes and no server is contacted except S3 for the\nfile."
+      }
+    },
+    "docs": {
+      "readme": {
+        "type": "text",
+        "value": "# Tandem\n\n**Two cogs, one couch, no channel.**\n\nTwo cogs are rigidly gripped to the two handles of one couch and have to walk it\nthrough a procedurally generated warehouse obstacle course — room by room,\ndoorway by doorway — with no way to say anything to each other. The couch obeys\nthe **sum** of their forces and turns on the **difference**, so every misread of\nthe partner shows up as a wall scrape or a drop. The only signal about what your\npartner intends is what you feel through the handle. The last doorway is\n1.05 m wide; the couch is 0.90 m.\n\nA policy is just a prompt. Both champions are LLM prompt policies; both fillers\nare scripted baselines; all four run the same image, switched by an environment\nvariable.\n\n- Rules, physics and scoring: [`docs/RULES.md`](docs/RULES.md)\n- Wire protocol, replay format and the reply schema: [`docs/PROTOCOL.md`](docs/PROTOCOL.md)\n- How to write a tandem prompt: [`docs/CARRYING.md`](docs/CARRYING.md)\n- Design note: [`docs/plans/2026-08-23-tandem-design.md`](docs/plans/2026-08-23-tandem-design.md)\n\n## Scoring\n\nFully cooperative — both seats receive the identical number.\n\n```\ndelivered:      score = 0.30 + 0.35 * speed + 0.35 * condition\nnot delivered:  score = 0.25 * progress * condition\n```\n\n`speed = clamp(2 − t/par, 0, 1)`, `condition = (1000 − damage)/1000`. Any\ndelivery beats every non-delivery; a wrecked couch scores 0.000. The league\nranks by the seat's mean score across its episodes (its cross-play mean), not by\nElo: with two identical scores every episode is a draw.\n\n## Running it\n\nThe whole game is one image with two entrypoints.\n\n```bash\ndocker build --platform=linux/amd64 -t coworld-tandem:ci .\ntools/ci/docker_smoke.sh coworld-tandem:ci     # one real episode, raw docker\n```\n\nSeat a policy of your own by reusing the image and setting a prompt:\n\n```bash\ncoworld upload-policy coworld-tandem:latest --name my-tandem \\\n  --run /bin/tandem-player --secret-env PLAYER_PROMPT=\"<your strategy>\"\n```\n\nor run a scripted seat: `PLAYER_SCRIPTED=porter` (the strain-arbitrated\nreference carrier, and the fallback for every failure mode) or\n`PLAYER_SCRIPTED=mule` (never yields, never braces, scrapes constantly).\n\n## Repo layout\n\n| Path | What |\n|---|---|\n| `src/tandem/{sim,course,control,trig}.nim` | the integer-only determinism core |\n| `src/tandem/{orders,baselines,llm,decide}.nim` | the order schema, the two baselines, the LLM client and the turn engine |\n| `src/tandem/{server,roster,replays,replay_runtime,broadcast,global,rig_art}.nim` | the episode server, the replay codec and the renderer |\n| `client/` | the broadcast chrome, inherited from `Metta-AI/coworld-ctf` |\n| `replay-viewer/` | the static wasm replay bundle |\n| `tests/` | the determinism gate and the rest of the suite |\n\n## Determinism\n\nReplays are re-simulated in the browser by the **emscripten/wasm32** build of\nthe same Nim module the **native amd64** server ran, and their per-tick\n`gameHash` chain must match bit for bit. So the sim, the course generator, the\ncontrol layer and the trigonometry are integer-only — no floats, no libm, one\ncommitted sine table, one integer square root, one integer atan2 — and every\nproduct is taken in `int64` and narrowed with an explicit truncating `div`.\n\nUnusually for this lineage the **control layer is inside** the determinism\nboundary: the replay carries 100 order records instead of 4800 action records,\nand the viewer re-derives every per-tick force from them.\n"
+      },
+      "pages": [
+        {
+          "id": "rules.md",
+          "title": "Rules",
+          "content": {
+            "type": "text",
+            "value": "# Tandem — rules\n\nTwo cogs are rigidly gripped to the two handles of one couch and carry it\nthrough a procedurally generated warehouse obstacle course, room by room,\ndoorway by doorway, **with no communication channel of any kind**.\n\n## Seats\n\n`num_agents` = 2. One seat = one cog.\n\n| Seat | Alias | Handle | Body-local x |\n|---|---|---|---|\n| 0 | Cobalt (blue rig) | fore | +1.40 m |\n| 1 | Rust (red rig) | aft | −1.40 m |\n\nThe seats are not symmetric in the world (fore vs aft handle) but they are\nsymmetric in rules, scoring and observation shape, so a policy is never\nadvantaged by its slot. Which handle a seat holds is stated in its own\nobservation (`\"you\": {\"handle\": \"fore\"}`).\n\n## World and units\n\nEverything in `src/tandem/{sim,course,control,trig}.nim` is **integers**, because\nreplays are re-simulated by the emscripten/wasm32 build of the same Nim module\nthe native amd64 server ran, and their per-tick `gameHash` chain must match\nbit for bit.\n\n| Quantity | Unit | Type |\n|---|---|---|\n| Position | micrometres (µm) | `int32` |\n| Linear velocity | µm per tick | `int32` |\n| Angle (`headingQ`) | 1/16 brad, 0..4095 (256 brads = 1 turn, 0 = +x, ccw on screen) | `int32` |\n| Angular velocity (`spin`) | 1/16 brad per tick | `int32` |\n| Force | millinewtons (mN) | `int32` |\n| Torque | millinewton-metres | `int64` accumulator |\n| Mass | grams | `int32` const |\n| Moment of inertia | milli-kg·m² | `int32` const |\n| Damage | scuff points, 0..1000 | `int32` |\n\nWorld box: `x ∈ [0, 44 400 000] µm`, `y ∈ [0, 25 200 000] µm` (44.4 m × 25.2 m),\norigin top-left, y down. Map render scale 1 map pixel = 40 000 µm →\n`MapWidth = 1110`, `MapHeight = 630`.\n\n**View coordinates** — the only coordinates a policy ever sees or sends — are\nmetres, origin at the world centre, **y up**:\n`X = (x_µm − 22 200 000) / 1 000 000`, `Y = (12 600 000 − y_µm) / 1 000 000`.\nAngles reported to policies are degrees ccw from +X, rounded to 1°.\n\n## The course\n\nA 9 × 5 grid of 4.8 m cells inside a 0.6 m outer wall ring. `generateCourse`\ndraws from one seeded `std/random` stream, integer draws only, in this order:\n\n1. **Route.** `r0 = rand(0..4)`, `r1 = rand(0..4)`. A self-avoiding walk from\n   `(0, r0)` steps east / north / south with weights 60 / 20 / 20, never west,\n   never off the grid, never a revisit; a dead end backtracks one cell and\n   re-draws with the failed direction excluded. It ends when it enters\n   `(8, r1)`. Route length outside 9..15 re-runs the walk; after 64 failures the\n   generator falls back to the monotone path along `r0`.\n2. **Doorways.** One per consecutive route pair: width from\n   `{1.05, 1.20, 1.40, 1.70, 2.20} m`, centre offset uniform in `±1.20 m`,\n   clamped so the gap edges stay ≥ 0.20 m inside the shared face. **The last\n   doorway is forced to 1.05 m, centred** — against a 0.90 m couch that is\n   75 mm of clearance a side.\n3. **Blocks.** Every off-route cell is one solid 4.8 m rect. Every boundary\n   between two non-consecutive route cells is a full 0.30 m wall; every\n   consecutive boundary is two stubs either side of the gap. The outer ring is\n   four rects that deliberately overhang the world box, so a contact resolved\n   from inside a rect always pushes toward the interior.\n4. **Pillars.** Each intermediate route cell, 45 % of the time, gets one 0.8 m\n   square offset `(±1.40, ±1.40) m` from the cell centre — skipped if it comes\n   within 1.30 m of the segment joining that cell's two doorway centres, so\n   every cell keeps a through-line wider than the couch.\n5. **Route polyline and par.** `routePts` interleaves cell centres and doorway\n   centres in traversal order. `parTicks = (routeLen_mm · 24) / 1600 +\n   36 · narrowDoors` — a reference carry at 1.6 m/s plus 1.5 s per tight door.\n6. **Goal pad.** The goal cell's interior, inset 0.10 m.\n7. **Digest.** FNV-1a over the serialized course, mixed into `gameHash` every\n   tick. The FULLY EXPANDED course is written into the replay's config JSON;\n   playback reads it back rather than regenerating.\n\n## The assembly\n\nOne rigid body, seven collision discs, one pose.\n\n| Part | Local offsets (m) | Radius | Mass |\n|---|---|---|---|\n| Couch hull discs ×5 | −0.65, −0.325, 0, +0.325, +0.65 | 0.45 m | 12 000 g each |\n| Cog discs ×2 | +1.40 (Cobalt), −1.40 (Rust) | 0.30 m | 30 000 g each |\n\n`TotalMassGrams = 120 000`; `InertiaMilliKgM2 = 139 050`, derived at compile\ntime from the mass table. Cogs cannot let go, walk around or change grip: the\ncompliance knob is `yield`.\n\n## Time\n\n24 Hz, four substeps of 1/96 s a tick. A run is at most `maxTicks = 2400`\n(100 s), divided into 50 decision turns of `turnTicks = 48` (2.0 s).\n\n## Resolution order, every tick\n\n1. **Turn boundary.** On `t mod 48 == 0` the collected order becomes each\n   seat's `activeOrder`, quantised to integers, INSTALLED THROUGH THE `order`\n   REPLAY RECORD — the one path, live and in playback. `activeOrder` is mixed\n   into `gameHash`, because here the order *is* the action log.\n2. **Regrip gate.** While `t < regripUntil` both forces are zero and `vel`/\n   `spin` are held at 0; steps 3–6 are skipped. At `regripUntil` the cogs\n   re-attach, slip and strain reset, and a `regrip` event fires.\n3. **Control compile**, seat 0 then 1: `control.seatForce` is a pure integer\n   function of (assembly state, that seat's order, that seat's felt strain).\n   **This is inside the determinism boundary** — the viewer runs it too.\n4. **Four substeps**, each: contacts → sum of forces → semi-implicit Euler with\n   drag → pose → felt strain.\n   - Contacts: disc vs axis-aligned rect. `Fn = 200·δ_µm + 29·max(0, −v_n)`,\n     clamped to ≥ 0 and ≤ 40 000 000 mN; `Ft = −min(354·Fn/1024, |v_t|·200)·û(v_t)`.\n   - **Sum of forces**: `F = F₀ + F₁ + F_contact`;\n     `τ = (r₀×F₀ + r₁×F₁)/10⁶ + τ_contact`.\n   - `Δv = F_mN·10⁶ / (120 000 · 96 · 24)`, then `v −= v·171/4096`;\n     `Δspin = τ·28 294 / (139 050 · 100 000)`, then `spin −= spin·341/4096`.\n     Clamps: `|v| ≤ 145 833` µm/tick (3.5 m/s), `|spin| ≤ 68` (2.5 rad/s).\n   - **Felt strain**: `H_i = m_cog·a_i − F_i`, the force in that cog's hands.\n     It contains the partner's force by construction, because `a_i` depends on\n     `F₀ + F₁`. **This is the entire coordination channel.**\n5. **Damage**, once per tick, hull discs only (bruised cogs, unscuffed couch).\n   Impact: first contact above 250 mm/s approach →\n   `clamp((mm/s − 250)·40/1000, 0, 200)`. Scrape: continuing contact sliding\n   above 50 mm/s → `clamp(mm/s / 800, 1, 4)` a tick, event-throttled to one per\n   disc per 6 ticks. The seat whose handle is nearer takes the `blame` — a\n   spectator meter, **not** part of the score.\n6. **Grip.** `slip += max(0, (|H| − gripLimit)/100 000) − 4`, floored at 0.\n   `slip ≥ 240` → **drop**: +60 damage plus up to 40 for speed, velocity and\n   spin zeroed, 48 ticks of regrip. Either seat's slip drops the couch.\n7. **Progress and delivery.** The couch centre is projected onto `routePts`;\n   `bestProgressPermille` is monotone. A `doorway` beat fires the first time\n   all five hull-disc centres are past a doorway plane. All five inside the\n   goal pad → delivered.\n8. **Stats** (contact ticks, scrape ticks, impacts, peak strain, blame).\n9. **Hash**: one `gameHash` per tick, mixing tick, phase, pose, velocity,\n   damage, slip, felt strain, progress, delivery, BOTH quantised orders and the\n   course digest. Never FX, notes, `say`, feed text or policy labels.\n10. **End checks**, in order: delivered → `complete/delivered`; damage ≥ 1000 →\n    `complete/wrecked`; invariant guard → `fault/sim_fault`; `maxTicks` →\n    `complete/out_of_time`. The wall-clock stop is checked by the server loop\n    and yields `deadline/wall_clock`.\n\n**There is no rescue rule.** A pair that wedges the couch and cannot free it\nburns the clock and ends `out_of_time` with partial credit.\n\n## Scoring\n\nThe game is **fully cooperative**: both seats receive the identical score,\ncomputed once, in integers.\n\n```\npar      = course.parTicks\nt        = deliveryTick if delivered else finalTick\ncond     = (1000 - damage) / 1000\nspeed    = clamp(2 - t/par, 0, 1)\nprogress = bestProgressPermille / 1000\n\ndelivered:      score = 0.30 + 0.35*speed + 0.35*cond    in [0.30, 1.00]\nnot delivered:  score = 0.25 * progress * cond           in [0.00, 0.25)\n```\n\nHigher is better. Any delivery beats every non-delivery; a wrecked couch scores\n0.000. The league ranks by the seat's **mean `results.scores` across its\nepisodes** — Elo cannot separate anybody when every episode is a draw.\n\n## End conditions\n\n| `reason` | `endRule` | When |\n|---|---|---|\n| `complete` | `delivered` | all five hull-disc centres inside the goal pad |\n| `complete` | `wrecked` | damage reached 1000 |\n| `complete` | `out_of_time` | `maxTicks` reached, undelivered and intact |\n| `deadline` | `wall_clock` | `wallClockBudgetSeconds` (660) elapsed first |\n| `fault` | `sim_fault` | a step-10 invariant guard tripped |\n| `fault` | `host_error` | an unexpected server-side exception |\n\nA seat that never connects does not end the episode: the no-show is reported to\n`COGAME_PLAYER_FAILURE_URI`, its cog is driven by `porter`, and the run plays to\na normal ending.\n\n## Determinism\n\nEvery stored sim field is an explicit `int32`/`bool`/enum. Every product or\nquotient of two sim quantities is taken in `int64` and narrowed with an explicit\ntruncating `div`. No floating point and no libm anywhere under\n`src/tandem/{sim,course,control,trig,sim_types,sim_config,sim_state}.nim` —\ntrigonometry is the committed `SinQ12` table, the only square root is `isqrt`,\nthe only atan2 is `bradsOfVectorI`. The sim draws no random numbers after\ntick 0.\n"
+          }
+        },
+        {
+          "id": "protocol.md",
+          "title": "Wire protocol",
+          "content": {
+            "type": "text",
+            "value": "# Tandem — wire protocol\n\n## Runtime contract\n\nThe game container reads `COGAME_CONFIG_URI` and writes `COGAME_RESULTS_URI`,\n`COGAME_SAVE_REPLAY_URI`, `COGAME_EVENTS_URI`, `COGAME_METRICS_URI` and\n`COGAME_PLAYER_FAILURE_URI`; `COGAME_HOST`/`COGAME_PORT` bind the listener.\n`COGAME_LOAD_REPLAY_URI` switches the process into replay-server mode.\n\n## HTTP / websocket routes\n\n| Route | What |\n|---|---|\n| `GET /healthz` | `200 healthy` |\n| `GET /player?slot=N&token=T` | the seat websocket; 403 on a bad slot or token |\n| `GET /global` | the spectator websocket (Sprite v1 board + chrome channel) |\n| `GET /replay` | the same stream in replay-server mode |\n| `GET /client/global`, `GET /client/player` | real HTML pages; **neither opens the player socket** |\n| `GET /client/replay` | the broadcast replay page |\n| `GET /replay-data` | the raw `.replay` bytes |\n\n`/healthz` and `/global` keep answering for a bounded ~20 s after the artifacts\nare written, then the process exits.\n\n## The player container\n\n`/bin/tandem-player` reads `COWORLD_PLAYER_WS_URL`, `PLAYER_PROMPT`,\n`PLAYER_SCRIPTED` and `PLAYER_POLICY_LABEL`, connects, and sends **one Sprite v1\nchat message** carrying its registration:\n\n```json\n{\"type\":\"register\",\"prompt\":\"<strategy text or empty>\",\n \"scripted\":\"porter\"|\"mule\"|null,\"policy\":\"<free label>\"}\n```\n\nIt then sends the Sprite v1 Ready packet (`0x85`) after each received frame and\notherwise only receives. Registration is re-sent once after the first received\nframe, in case the first send raced slot registration. The receive loop is\nwrapped in `try/except CatchableError` and exits 0 on a dead socket. A seat that\nnever registers, or registers with neither field, is `scripted: \"porter\"`.\n\n**Player sockets contribute no input.** The server computes both force vectors.\n\n## The per-seat stream\n\nOne binary Sprite v1 frame per tick. **Visible:** the whole warehouse and both\ncogs — there is no fog of war. **Hidden:** the partner's order, note, `say`,\neffort, yield, twist, brace and felt strain; the partner's `PLAYER_PROMPT`;\nreal player names (board labels carry only `Cobalt`/`Rust`); and future ticks.\n\n## The per-seat view given to the LLM\n\nNumbers rounded to 2 decimals, in view coordinates (metres, centred, y up) and\ndegrees.\n\n```json\n{\"turn\": 12, \"of\": 50, \"clock\": {\"elapsed_s\": 24.0, \"par_s\": 39.2, \"left_s\": 76.0},\n \"you\": {\"alias\": \"Cobalt\", \"handle\": \"fore\", \"pos\": [-4.10, 2.35]},\n \"partner\": {\"alias\": \"Rust\", \"handle\": \"aft\", \"pos\": [-6.90, 1.05]},\n \"couch\": {\"pos\": [-5.50, 1.70], \"angle_deg\": 25.0, \"vel\": [1.02, 0.41],\n           \"speed\": 1.10, \"spin_deg_s\": -18.0, \"length_m\": 2.20, \"width_m\": 0.90},\n \"strain\": {\"vec\": [-310, 145], \"newtons\": 342, \"grip_limit_newtons\": 850,\n            \"headroom_pct\": 60, \"slip_pct\": 12, \"note\": \"…\"},\n \"condition\": {\"damage\": 214, \"condition_pct\": 78.6, \"damage_last_turn\": 31,\n               \"touching\": [\"couch_left_rear\"], \"drops\": 1},\n \"route\": {\"progress_pct\": 46.2, \"cell\": [3, 2], \"doors_cleared\": 4,\n           \"doors_total\": 11,\n           \"next_doorways\": [{\"centre\": [-3.20, 1.70], \"width_m\": 1.20,\n                              \"through_deg\": 0.0, \"dist_m\": 2.30}, …],\n           \"goal\": {\"centre\": [18.60, 3.40], \"dist_along_route_m\": 28.4}},\n \"room\": {\"walls\": [{\"x\": [-7.80, -3.00], \"y\": [3.30, 3.60]}, …],\n          \"pillars\": [{\"centre\": [-4.10, 0.30], \"size_m\": 0.80}]},\n \"your_last_order\": …}\n```\n\nEverything in it is either your own state, the shared body's state, or the map.\n**Nothing in it is derived from the partner's order** —\n`tests/test_no_channel.nim` asserts that over 200 randomised order pairs.\n\n## The reply schema\n\n```json\n{\"note\": \"aligning for the 1.2 m door, easing off\",\n \"drive\": [0.98, 0.20], \"effort\": 0.45, \"yield\": 0.35,\n \"twist\": -0.40, \"brace\": 0.8, \"say\": \"you lead, I'll follow\"}\n```\n\n| Field | Cap / legal values | Repair when violated |\n|---|---|---|\n| `note` | ≤ 160 runes | truncated on a rune boundary |\n| `drive` | finite, each clamped `[−1, 1]`, quantised to a Q12 unit vector | non-finite / missing / `[0,0]` → last turn's `drive`, else the scripted fallback's |\n| `effort` | finite, clamped `[0, 1]`, quantised to `0..255` | → 0.5 |\n| `yield` | finite, clamped `[0, 1]`, quantised to `0..255` | → 0.25 |\n| `twist` | finite, clamped `[−1, 1]`, quantised to `−255..255` | → 0 |\n| `brace` | finite, clamped `[0, 1]`, quantised to `0..255` | → 0 |\n| `say` | ≤ 48 runes | truncated on a rune boundary |\n\nFurther caps on strings that reach the replay: `register.policy` ≤ 48 runes,\n`fallback.detail` ≤ 200 runes, the whole serialized `order` record ≤ 900 runes\n(shrunk structurally so it stays parseable JSON). `register.prompt` is capped at\n4000 runes at the transport and is **never** written to the replay or results.\n\n**Truncation is on rune boundaries, never bytes.** Slicing a string by byte\nindex on any path to the replay is forbidden.\n\nParsing is tolerant: markdown fences are stripped, the outermost balanced\n`{…}` is taken, numeric strings are accepted, `drive` may arrive as\n`{\"x\":…,\"y\":…}`, and an integer percentage is divided by 100 when it exceeds 1.\nOnly when no field at all can be recovered do the retry and then the scripted\nfallback fire.\n\n## Replay bytes\n\nThe replay is the starter's binary `COWLDTDM` format, self-sufficient: magic +\nformat version + game name/version header, the resolved config JSON (seed, the\nFULLY EXPANDED course, every physics constant, the roster with real names), the\njoin/leave records, the chat records and one `gameHash` per tick.\n\n| `k` | Fields |\n|---|---|\n| `register` | `seat`, `alias`, `policy`, `kind`, `baseline` |\n| `order` | `turn`, `seat`, `alias`, `source`, `latency_ms`, `note`, `drive`, `effort`, `yield`, `twist`, `brace`, `say`, and **`q`** — the six exact quantised integers the sim hashed, which is what playback re-installs |\n| `fallback` | `turn`, `seat`, `attempt`, `cause`, `detail` |\n| `budget_guard` | `turn`, `remaining_s` |\n| `result` | the full results document |\n\n`tools/replay_summary.py` (Python 3 stdlib only) prints one strict-UTF-8 JSON\nobject summarising a `.replay` file, which is the phase-60 substitute for a JSON\nreplay.\n\n## The tier-2 event stream\n\n`COGAME_EVENTS_URI` gets JSON lines, one row per `SimEvent`\n(`scrape`, `impact`, `drop`, `regrip`, `doorway`, `strain_warn`, `order`,\n`phase`, `delivered`, `wrecked`) plus a mandatory trailing summary row carrying\n`type`, `ticks`, `events` and `gameVersion`.\n"
+          }
+        },
+        {
+          "id": "carrying.md",
+          "title": "Writing a tandem prompt",
+          "content": {
+            "type": "text",
+            "value": "# Writing a tandem prompt\n\nA policy here is a prompt. Every two seconds of sim time your seat is asked for\none JSON object and a deterministic controller executes it at 24 Hz. You are one\nof two cogs gripped to opposite handles of the same rigid couch.\n\n## What you actually control\n\n```json\n{\"note\":\"…\",\"drive\":[x,y],\"effort\":0..1,\"yield\":0..1,\n \"twist\":-1..1,\"brace\":0..1,\"say\":\"…\"}\n```\n\n* **`drive`** is a direction in metres-frame view coordinates (y up). Its\n  magnitude is ignored; only the direction matters.\n* **`effort`** scales your push along `drive`. 1.0 is your full 600 N.\n* **`yield`** is the compliance knob and the only reply to your partner you\n  have. At `yield = 1` you push 80 % of the way the handle is already pulling\n  you — you go where they are taking it. At 0 you ignore them completely.\n* **`twist`** rotates the couch. A positive twist from BOTH seats is a pure\n  couple: torque, no net force. One seat twisting alone also pushes.\n* **`brace`** halves your push and raises your grip limit by up to 450 N. In a\n  doorway it is almost always right.\n* **`note`** and **`say`** go to the spectator feed. **Your partner never sees\n  them.**\n\n## There is no channel\n\nThe only thing you learn about your partner is `strain` — the force in your own\nhands — and where their end of the couch is. That is not a limitation to route\naround; it is the game. Read the strain:\n\n* strain roughly along where you want to go → your partner is leading well.\n  Add your force along the SAME line and raise `yield`. Two cogs pulling\n  together move twice as fast as one.\n* strain opposing where you want to go → your partner has committed to a\n  different line. Fighting them spins the couch into a wall. Either yield and\n  follow, or take the lead decisively — but both of you doing the same thing is\n  what costs condition.\n\n## What wins\n\nScore is `0.30 + 0.35·speed + 0.35·condition` when you deliver, and\n`0.25·progress·condition` when you do not. So:\n\n* **Delivering at all is worth more than anything else.** Any delivery beats\n  every non-delivery.\n* Condition is worth exactly as much as speed. A run that arrives 20 % late but\n  unscratched beats a run that arrives on par with 40 % of the upholstery gone.\n* A wrecked couch scores 0.000.\n\n## The geometry that decides it\n\nThe couch is 2.20 m long and 0.90 m wide; the assembly including both cogs is\n3.40 m end to end. Doorways are 1.05–2.20 m. **The last doorway is always\n1.05 m** — 75 mm of clearance a side. A couch that arrives at a door already\nlined up with its through direction goes through; a couch that arrives at 20°\nwedges.\n\nSo the shape of a good turn near a door is: get the couch axis inside ~15° of\nthe doorway's through direction BEFORE you are within 1.5 m of it, set\n`twist` back to 0 once you are aligned, brace, and ease the effort down.\n\n## Things that cost you condition\n\n* Driving into a wall you are already touching (scrape, 1–4 points a tick).\n* Arriving at a wall fast (impact, up to 200 points at once).\n* Letting the strain in your hands sit above your grip limit: slip builds, and\n  at 240 you drop the couch — 60+ points and two seconds on the floor.\n\n## A starting recipe\n\n1. Aim `drive` at the centre of the NEXT doorway, not at the goal.\n2. Run `effort` ~0.65 in open floor, ~0.35 within two metres of a door.\n3. Keep `yield` low but never zero — 0.15 open, 0.5+ when the strain disagrees\n   with you by more than 90°.\n4. `twist` toward the corridor you are about to enter; 0 once aligned.\n5. `brace` 0.85 in a doorway or whenever strain is over 600 N.\n6. If you are scraping, cut effort and drive AWAY from the wall for one turn.\n\nThen read the strain and stop doing whatever your partner is already doing.\n"
+          }
+        }
+      ]
+    },
+    "config_schema": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "tokens",
+        "players"
+      ],
+      "properties": {
+        "tokens": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Per-slot auth tokens, positional."
+        },
+        "players": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 2,
+          "items": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": true
+          },
+          "description": "Per-slot policy names (spectator side)."
+        },
+        "slots": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 2,
+          "items": {
+            "type": "object",
+            "properties": {
+              "alias": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": true
+          },
+          "description": "Per-slot in-game aliases: Cobalt then Rust."
+        },
+        "closedRoster": {
+          "type": "boolean",
+          "default": false
+        },
+        "seed": {
+          "type": "integer",
+          "description": "Course generator seed; randomised when unpinned."
+        },
+        "num_agents": {
+          "type": "integer",
+          "minimum": 2,
+          "maximum": 2,
+          "default": 2
+        },
+        "minPlayers": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 2,
+          "default": 2
+        },
+        "maxTicks": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 2400
+        },
+        "maxGames": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 1
+        },
+        "turnTicks": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 48
+        },
+        "turnBudgetMs": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 7000
+        },
+        "attempt1Ms": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 4500
+        },
+        "retryMs": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 2000
+        },
+        "minBatchSpacingMs": {
+          "type": "integer",
+          "minimum": 0,
+          "default": 4500,
+          "description": "Inter-batch wall floor; the Bedrock sidecar caps 30 requests a minute per episode."
+        },
+        "wallClockBudgetSeconds": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 720,
+          "default": 660
+        },
+        "lobbyJoinTimeoutTicks": {
+          "type": "integer",
+          "minimum": 0,
+          "default": 2400
+        },
+        "startWaitTicks": {
+          "type": "integer",
+          "minimum": 0,
+          "default": 24
+        },
+        "gameOverTicks": {
+          "type": "integer",
+          "minimum": 0,
+          "default": 48
+        },
+        "regripTicks": {
+          "type": "integer",
+          "minimum": 0,
+          "default": 48
+        },
+        "fastMode": {
+          "type": "boolean",
+          "default": true
+        },
+        "showPlayerLabels": {
+          "type": "boolean",
+          "default": false
+        },
+        "speed": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 1
+        },
+        "model": {
+          "type": "string",
+          "default": "claude-haiku-4-5-20251001"
+        },
+        "maxOutputTokens": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 900
+        },
+        "maxSeatForceMilliNewtons": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 600000
+        },
+        "gripLimitMilliNewtons": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 850000
+        },
+        "damageCap": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 1000
+        }
+      }
+    },
+    "results_schema": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "names",
+        "scores",
+        "win",
+        "reason",
+        "endRule",
+        "delivered",
+        "damage",
+        "jointScore"
+      ],
+      "properties": {
+        "names": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 2,
+          "items": {
+            "type": "string"
+          }
+        },
+        "aliases": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 2,
+          "items": {
+            "type": "string"
+          }
+        },
+        "policyKinds": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 2,
+          "items": {
+            "type": "string"
+          }
+        },
+        "scores": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 2,
+          "items": {
+            "type": "number"
+          }
+        },
+        "win": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 2,
+          "items": {
+            "type": "boolean"
+          }
+        },
+        "jointScore": {
+          "type": "number"
+        },
+        "delivered": {
+          "type": "boolean"
+        },
+        "damage": {
+          "type": "integer"
+        },
+        "condition": {
+          "type": "number"
+        },
+        "deliveryTicks": {
+          "type": "integer"
+        },
+        "parTicks": {
+          "type": "integer"
+        },
+        "progress": {
+          "type": "number"
+        },
+        "drops": {
+          "type": "integer"
+        },
+        "impacts": {
+          "type": "integer"
+        },
+        "scrapeTicks": {
+          "type": "integer"
+        },
+        "strainPeakNewtons": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 2,
+          "items": {
+            "type": "integer"
+          }
+        },
+        "blame": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 2,
+          "items": {
+            "type": "integer"
+          }
+        },
+        "llmTurns": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 2,
+          "items": {
+            "type": "integer"
+          }
+        },
+        "fallbackTurns": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 2,
+          "items": {
+            "type": "integer"
+          }
+        },
+        "reason": {
+          "type": "string",
+          "enum": [
+            "complete",
+            "deadline",
+            "fault"
+          ]
+        },
+        "endRule": {
+          "type": "string",
+          "enum": [
+            "delivered",
+            "wrecked",
+            "out_of_time",
+            "wall_clock",
+            "sim_fault",
+            "host_error"
+          ]
+        },
+        "finalTick": {
+          "type": "integer"
+        },
+        "seed": {
+          "type": "integer"
+        }
+      }
+    }
+  },
+  "player": [
+    {
+      "id": "baseline",
+      "type": "player",
+      "name": "Tandem Porter Baseline",
+      "description": "Strain-arbitrated scripted carrier; no LLM. It heads for the next doorway centre, lines the couch axis up with the corridor, braces in the gap and yields whenever the force it feels opposes where it wants to go.",
+      "image": "{{TANDEM_IMAGE}}",
+      "run": [
+        "/bin/tandem-player"
+      ],
+      "env": {
+        "PLAYER_SCRIPTED": "porter"
+      },
+      "source_url": "https://github.com/Metta-AI/cogame-tandem/tree/main",
+      "resources": {
+        "requests": {
+          "cpu": "100m",
+          "memory": "64Mi"
+        },
+        "limits": {
+          "cpu": "1"
+        }
+      }
+    }
+  ],
+  "variants": [
+    {
+      "id": "default",
+      "name": "Delivery (2 cogs, 100 s)",
+      "description": "Full course, 50 decision turns of 2 s.",
+      "game_config": {
+        "players": [
+          {
+            "name": "Cobalt"
+          },
+          {
+            "name": "Rust"
+          }
+        ],
+        "slots": [
+          {
+            "alias": "Cobalt"
+          },
+          {
+            "alias": "Rust"
+          }
+        ],
+        "num_agents": 2,
+        "minPlayers": 2,
+        "maxTicks": 2400,
+        "maxGames": 1,
+        "turnTicks": 48,
+        "turnBudgetMs": 7000,
+        "attempt1Ms": 4500,
+        "retryMs": 2000,
+        "minBatchSpacingMs": 4500,
+        "wallClockBudgetSeconds": 660,
+        "lobbyJoinTimeoutTicks": 2400,
+        "startWaitTicks": 24,
+        "gameOverTicks": 48,
+        "regripTicks": 48,
+        "fastMode": true,
+        "showPlayerLabels": false
+      }
+    },
+    {
+      "id": "sprint",
+      "name": "Sprint (2 cogs, 60 s)",
+      "description": "Same course generator, 30 decision turns, for cheap ladder rounds.",
+      "game_config": {
+        "players": [
+          {
+            "name": "Cobalt"
+          },
+          {
+            "name": "Rust"
+          }
+        ],
+        "slots": [
+          {
+            "alias": "Cobalt"
+          },
+          {
+            "alias": "Rust"
+          }
+        ],
+        "num_agents": 2,
+        "minPlayers": 2,
+        "maxTicks": 1440,
+        "maxGames": 1,
+        "turnTicks": 48,
+        "turnBudgetMs": 7000,
+        "attempt1Ms": 4500,
+        "retryMs": 2000,
+        "minBatchSpacingMs": 4500,
+        "wallClockBudgetSeconds": 420,
+        "lobbyJoinTimeoutTicks": 2400,
+        "startWaitTicks": 24,
+        "gameOverTicks": 48,
+        "regripTicks": 48,
+        "fastMode": true,
+        "showPlayerLabels": false
+      }
+    }
+  ],
+  "certification": {
+    "players": [
+      {
+        "player_id": "baseline"
+      },
+      {
+        "player_id": "baseline"
+      }
+    ],
+    "game_config": {
+      "players": [
+        {
+          "name": "Cobalt"
+        },
+        {
+          "name": "Rust"
+        }
+      ],
+      "slots": [
+        {
+          "alias": "Cobalt"
+        },
+        {
+          "alias": "Rust"
+        }
+      ],
+      "num_agents": 2,
+      "minPlayers": 2,
+      "seed": 4417231,
+      "maxTicks": 900,
+      "maxGames": 1,
+      "turnTicks": 48,
+      "turnBudgetMs": 7000,
+      "minBatchSpacingMs": 0,
+      "wallClockBudgetSeconds": 180,
+      "lobbyJoinTimeoutTicks": 1440,
+      "fastMode": true
+    }
+  }
+}

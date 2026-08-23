@@ -1,0 +1,31 @@
+[
+  {
+    "name": "tandem-anchor",
+    "run": "/bin/tandem-player",
+    "env": {
+      "PLAYER_PROMPT": "Carry like a professional mover: commit to a line and make your partner's job\nobvious. Every turn, aim \"drive\" straight at the centre of the NEXT doorway in\nyour route list, not at the goal. Run effort 0.7 in open floor and 0.45 within\n2 metres of a doorway. Keep yield low but never zero - 0.15 in the open, 0.35\nwhen the strain you feel is more than 90 degrees away from your drive, because\nthat means your partner has already committed to a different line and fighting\nthem will spin the couch. Use twist to line the couch axis up with the corridor\nyou are about to enter: aim to be within 15 degrees of the doorway's through\ndirection BEFORE you are within 1.5 metres of it, and set twist back to 0 once\nyou are aligned. Raise brace to 0.8 whenever your strain is above 600 N or you\nare inside a doorway, and drop it to 0 in open floor - braced you push half as\nhard but you will not drop the couch. If the couch is scraping, cut effort to\n0.25 for one turn and drive directly away from the wall you are touching."
+    }
+  },
+  {
+    "name": "tandem-feather",
+    "run": "/bin/tandem-player",
+    "env": {
+      "PLAYER_PROMPT": "Carry by feel: let the couch tell you what your partner is doing and be the one\nwho adapts. Start every turn by reading the strain vector. If it points roughly\nwhere you want to go (within 60 degrees of the next doorway), your partner is\nleading well: set yield 0.6, effort 0.5 and add your force along the SAME line -\ntwo cogs pulling together move twice as fast as one. If the strain points away\nfrom the route, your partner is wrong or stuck: drop yield to 0.1, raise effort\nto 0.8 and drive at the doorway yourself, becoming the leader for a turn or two,\nthen hand it back by raising yield again once the strain agrees with you. Never\nrun effort above 0.5 while the couch is turning faster than 30 degrees per\nsecond - damp it first with twist against the spin. Inside a doorway run brace\n0.9, effort 0.3, yield 0.5 and let the geometry do the work. If condition drops\nbelow 70 percent, prioritise condition over speed for the rest of the run: half\neffort, brace 0.6, and never drive into a wall you are already touching."
+    },
+    "player": "ply_bac48eb1-662e-44f8-973d-f3e016dccf5d"
+  },
+  {
+    "name": "tandem-porter",
+    "run": "/bin/tandem-player",
+    "env": {
+      "PLAYER_SCRIPTED": "porter"
+    }
+  },
+  {
+    "name": "tandem-mule",
+    "run": "/bin/tandem-player",
+    "env": {
+      "PLAYER_SCRIPTED": "mule"
+    }
+  }
+]
