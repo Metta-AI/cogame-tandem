@@ -15,12 +15,20 @@
 ##     --run /bin/tandem-player --secret-env PLAYER_PROMPT="<your strategy>"
 
 import
-  std/[json, monotimes, net, options, os, strutils, times],
+  std/[json, monotimes, net, options, os, strutils, times, unicode],
   whisky
 
 const
   SpriteClientChat = 0x81'u8
   SpriteClientReady = 0x85'u8
+  PromptRuneCap* = 4000
+    ## THE CAP IS HERE, at the transport, because the Sprite v1 chat frame
+    ## carries a u16 length: a registration over 65 535 bytes wraps that field
+    ## and the server discards the frame, which silently turns a champion into
+    ## a porter instead of truncating it. The design note's rule is that an
+    ## over-long `register.prompt` is TRUNCATED, NEVER REJECTED, so it is cut
+    ## here, on a rune boundary, before the frame is built. Mirrors
+    ## `sim_types.MaxPromptRunes`, which caps it again server-side.
   ConnectTimeoutMs* = 90_000
     ## The game pod and the player pods are started together, so the game's
     ## listener may not be up when this process first dials: a refused connect
@@ -39,7 +47,13 @@ const
     ## otherwise leave this container blocked until the platform kills the
     ## episode. Degrade, never hang.
 
-proc chatPacket(text: string): string =
+proc clipPromptRunes*(text: string): string =
+  ## Rune-boundary truncation. Slicing by BYTE index would split a codepoint
+  ## and hand the server a payload that is not valid UTF-8 JSON.
+  if text.runeLen <= PromptRuneCap: text
+  else: text.runeSubStr(0, PromptRuneCap)
+
+proc chatPacket*(text: string): string =
   ## A Sprite v1 chat packet: type byte, u16 length, then the raw payload. The
   ## server reads the payload WITHOUT an ASCII filter, so a non-ASCII policy
   ## label survives to the replay intact.
@@ -49,6 +63,20 @@ proc chatPacket(text: string): string =
   result[2] = char((text.len shr 8) and 0xff)
   for i, ch in text:
     result[3 + i] = ch
+
+proc registrationPayload*(prompt, scripted, label: string): string =
+  ## The one registration object this container sends. Exported so
+  ## tests/test_server.nim can push a real payload through the real framing
+  ## into `registrationOf`, rather than testing the parser beside the frame.
+  $ %*{
+    "type": "register",
+    "prompt": clipPromptRunes(prompt),
+    "scripted": (if scripted.len > 0: %scripted else: newJNull()),
+    "policy": (
+      if label.len > 0: label
+      elif prompt.len > 0: "llm"
+      else: scripted)
+  }
 
 proc readyPacket(): string =
   result = newString(1)
@@ -87,15 +115,7 @@ when isMainModule:
     scripted = if scriptedEnv in ["porter", "mule"]: scriptedEnv
                else: "porter"
 
-  let registration = $ %*{
-    "type": "register",
-    "prompt": prompt,
-    "scripted": (if scripted.len > 0: %scripted else: newJNull()),
-    "policy": (
-      if label.len > 0: label
-      elif prompt.len > 0: "llm"
-      else: scripted)
-  }
+  let registration = registrationPayload(prompt, scripted, label)
 
   echo "tandem player: connecting (",
     (if prompt.len > 0: "prompt, " & $prompt.len & " chars"

@@ -33,6 +33,12 @@ chat message** carrying its registration:
  "scripted":"porter"|"mule"|null,"policy":"<free label>"}
 ```
 
+`prompt` is truncated to 4000 runes **by the sender**, before the frame is
+built: the Sprite v1 chat header carries a u16 length, so a registration over
+65 535 bytes would wrap it and be discarded by the server — a rejected
+registration, which the rules forbid (over-long is truncated, never rejected).
+The server truncates again on receipt.
+
 It then sends the Sprite v1 Ready packet (`0x85`) after each received frame and
 otherwise only receives. Registration is re-sent once after the first received
 frame, in case the first send raced slot registration. The receive loop is

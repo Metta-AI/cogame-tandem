@@ -4,6 +4,7 @@
 import std/[json, os, strutils, unicode]
 import lib/helpers
 import tandem/[decide, server]
+import tandem_player
 
 proc registrationBecomesARedactedRecord() =
   let previous = SeatPolicy()
@@ -46,6 +47,36 @@ proc longPromptIsTruncatedNotRejected() =
     "the prompt is " & $reg.policy.prompt.runeLen & " runes"
   doAssert reg.policy.label.runeLen <= MaxPolicyRunes
   report "an over-long prompt is truncated, never rejected"
+
+proc oversizePacketIsTruncatedNotDropped() =
+  ## THROUGH THE REAL FRAMING, not beside it. The Sprite v1 chat frame carries
+  ## a u16 length, so a registration over 65 535 bytes used to wrap it, be
+  ## discarded by `readSpriteChatRaw`, and silently turn a champion seat into a
+  ## porter. The note's rule is truncate, never reject.
+  let prompt = repeat("carry-the-couch.", 20_000)   ## 320 000 bytes.
+  doAssert prompt.len > 65_535
+  let packet = chatPacket(registrationPayload(prompt, "", "tandem-anchor"))
+  doAssert packet.len < 65_535 + 3,
+    "the registration frame is " & $packet.len & " bytes; the u16 length " &
+      "field cannot carry it"
+  let text = readSpriteChatRaw(packet)
+  doAssert text.len > 0, "THE OVERSIZE REGISTRATION FRAME WAS DROPPED"
+  let reg = registrationOf(text, Cobalt, SeatPolicy())
+  doAssert reg.ok, "the oversize registration was not recognised"
+  doAssert reg.policy.kind == pkLlm,
+    "an oversize prompt made the seat " & $reg.policy.kind
+  doAssert reg.policy.prompt.runeLen == MaxPromptRunes,
+    "the prompt survived as " & $reg.policy.prompt.runeLen & " runes"
+  doAssert reg.policy.label == "tandem-anchor"
+  # A multi-byte prompt is cut on a rune boundary, not mid-codepoint.
+  let wide = repeat("\u{1F6CB}", 20_000)
+  let wideText = readSpriteChatRaw(
+    chatPacket(registrationPayload(wide, "", "wide")))
+  doAssert wideText.len > 0 and isValidUtf8(wideText)
+  let wideReg = registrationOf(wideText, Rust, SeatPolicy())
+  doAssert wideReg.ok and wideReg.policy.prompt.runeLen == MaxPromptRunes
+  doAssert isValidUtf8(wideReg.policy.prompt)
+  report "an oversize registration frame is truncated, never dropped"
 
 proc nonRegistrationChatIsDropped() =
   for text in ["hello there", "{\"k\":\"order\"}", "", "{"]:
@@ -121,6 +152,7 @@ when isMainModule:
   registrationBecomesARedactedRecord()
   unchangedResendEarnsNoRecord()
   longPromptIsTruncatedNotRejected()
+  oversizePacketIsTruncatedNotDropped()
   nonRegistrationChatIsDropped()
   seatWithNeitherFieldIsPorter()
   joinGate()
