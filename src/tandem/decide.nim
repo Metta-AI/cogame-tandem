@@ -348,7 +348,14 @@ proc turn*(
     calls: seq[BatchCall]
   for seat in Seat:
     let policy = engine.policies[seat]
-    if policy.kind == pkScripted:
+    if policy.kind == pkScripted or not policy.connected:
+      # DEGRADE, NEVER HANG. A scripted seat plays its baseline; an LLM seat
+      # whose socket has closed degrades to `porter` (`baseline` is empty for
+      # an LLM policy and `baselineOrder` reads an unknown name as porter)
+      # instead of paying LLM latency for a seat nobody is watching. It revives
+      # the moment a reconnect re-registers it — `registrationOf` sets
+      # `connected` again. A seat that has not registered at all is
+      # pkScripted/porter already.
       resolved[seat] = sim.baselineOrder(seat, policy.baseline, turnIndex)
       settled[seat] = true
     elif engine.llmOff or engine.batch.isNil or

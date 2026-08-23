@@ -204,7 +204,7 @@ proc joinError(
     return "Player token does not match configured slot " & $slot & "."
   "Player credentials do not match configured roster."
 
-proc readSpriteChatRaw*(message: string): string =
+proc readSpriteChatRaw(message: string): string =
   ## Reads a Sprite v1 chat packet's payload WITHOUT the ASCII filter
   ## `parseSpriteClientMessages` applies. Registration is JSON that may carry
   ## a non-ASCII policy label, and the whole point of the rune discipline is
