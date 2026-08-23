@@ -241,6 +241,32 @@ if [ "${exit_code}" != "0" ]; then
   exit 1
 fi
 
+# EVERY PLAYER CONTAINER'S EXIT CODE, not just the game's. A player that dies on
+# an unhandled exception (whisky raises on a half-closed read; mummy's send only
+# queues, so the game's quit(0) can outrun the flushed frame) still leaves a
+# green game container and a complete results.json -- and would fail the hosted
+# episode. The players exit when the game closes their sockets, so give them a
+# short grace after the game is gone before reading the code.
+for ((slot = 0; slot < seats; slot++)); do
+  pname="${prefix}-p${slot}"
+  pdeadline=$((SECONDS + 60))
+  while docker ps -q --filter "name=^/${pname}$" | grep -q .; do
+    if (( SECONDS > pdeadline )); then
+      echo "FAIL: player container ${pname} was still running 60s after the game exited" >&2
+      dump_logs
+      exit 1
+    fi
+    sleep 2
+  done
+  pexit="$(docker inspect -f '{{.State.ExitCode}}' "${pname}")"
+  if [ "${pexit}" != "0" ]; then
+    echo "FAIL: player container ${pname} exited ${pexit}" >&2
+    dump_logs
+    exit 1
+  fi
+  echo "player container ${pname} exited 0"
+done
+
 # --------------------------------------------------------------------------
 # Assert the artifacts.
 # --------------------------------------------------------------------------
