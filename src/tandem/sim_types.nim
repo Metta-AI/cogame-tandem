@@ -300,6 +300,16 @@ type
     x*, y*: int32
     approachMmS*: int32
     slideMmS*: int32
+    depthUm*: int32               ## penetration `radius - dist`, always > 0.
+    slideUmPerTick*: int32        ## |v_t|, unrounded (`slideMmS` is a lossy
+                                  ## mm/s rounding and is what damage reads).
+    normalMilliNewtons*: int32    ## the CLAMPED normal force: >= 0 always.
+    frictionMilliNewtons*: int32  ## |Ft|, viscously capped so it cannot
+                                  ## reverse the slide inside one substep.
+                                  ## Recorded so tests/test_physics.nim can
+                                  ## assert both properties instead of
+                                  ## asserting quantities that are
+                                  ## non-negative by construction.
 
   SeatStats* = object
     strainPeak*: int32         ## mN

@@ -46,7 +46,7 @@ proc equalForcesTranslate() =
   let push: SeatForces = [(0'i32, -200_000'i32), (0'i32, -200_000'i32)]
   let startX = sim.posX
   let startHeading = sim.headingQ
-  for _ in 0 ..< 200:
+  for _ in 0 ..< 480:
     sim.step(push)
   doAssert sim.spin == 0, "equal forces produced spin " & $sim.spin
   doAssert sim.headingQ == startHeading,
@@ -61,7 +61,7 @@ proc oppositeForcesRotate() =
   let couple: SeatForces = [(0'i32, -300_000'i32), (0'i32, 300_000'i32)]
   let startX = sim.posX
   let startY = sim.posY
-  for _ in 0 ..< 240:
+  for _ in 0 ..< 480:
     sim.step(couple)
   doAssert sim.posX == startX and sim.posY == startY,
     "a pure couple displaced the couch by " & $(sim.posX - startX) & "," &
@@ -95,36 +95,76 @@ proc terminalSpeed() =
 
 proc wallsHold() =
   ## Driven into a wall at full force for 600 ticks the assembly never leaves
-  ## the world box and never buries a disc more than a wall thickness deep.
+  ## the world box and its PENETRATION never exceeds 60 000 um — the note's
+  ## bound, and the one that says something: a disc CENTRE past the wall face
+  ## is a different (and far later) failure than a disc sunk into it, and the
+  ## penetration the solver actually resolved is what the contact log carries.
   var config = testConfig()
   var sim = carryingSim(config)
   let full: SeatForces = [(-MaxSeatForce, 0'i32), (-MaxSeatForce, 0'i32)]
   var worstPenetration = 0'i32
+  var contactsSeen = 0
   for _ in 0 ..< 600:
     sim.step(full)
+    for contact in sim.contacts:
+      inc contactsSeen
+      doAssert contact.depthUm > 0, "a contact was logged with no overlap"
+      worstPenetration = max(worstPenetration, contact.depthUm)
     for disc in 0 ..< DiscCount:
       let p = sim.discPos(disc)
       doAssert p.x >= 0 and p.y >= 0 and p.x <= WorldW and p.y <= WorldH,
         "disc " & $disc & " left the world box at " & $p.x & "," & $p.y
-      if p.x < WallRing:
-        worstPenetration = max(worstPenetration, WallRing - p.x)
-  doAssert worstPenetration < InnerWall,
-    "a disc buried " & $worstPenetration & " um into the ring"
-  report "a wall held against 1200 N for 600 ticks"
+      doAssert p.x >= WallRing - discRadius(disc),
+        "disc " & $disc & " sank through the ring face at " & $p.x
+  doAssert contactsSeen > 0, "the couch never reached a wall in 25 s"
+  doAssert worstPenetration <= 60_000,
+    "a disc buried " & $worstPenetration & " um into a wall"
+  report "a wall held against 1200 N for 600 ticks, under 60 mm of penetration"
 
 proc contactsPush() =
-  ## Contacts push, never stick: the normal force is never negative, so a disc
-  ## resting on a wall is never pulled into it.
+  ## The two properties §Tests 1 names, over EVERY contact of every tick:
+  ##
+  ##  1. contacts push, never stick — the normal force the solver applied is
+  ##     never negative, so a disc resting on a wall is never pulled into it;
+  ##  2. friction never reverses the slide inside one substep — the Coulomb
+  ##     term is capped viscously, and the check is the physical one: the
+  ##     velocity change friction can produce in a substep,
+  ##     `F * 1e6 / MassStepDen`, is smaller than the slide it opposes.
+  ##
+  ## `approachMmS`/`slideMmS` are non-negative BY CONSTRUCTION (`max(0, -vn)`
+  ## and an isqrt magnitude), so asserting those two proves nothing on its own;
+  ## they are kept as cheap sanity beside the two that can fail.
   var config = testConfig()
   var sim = carryingSim(config)
   let full: SeatForces = [(-MaxSeatForce, 0'i32), (-MaxSeatForce, 0'i32)]
+  var seen = 0
+  var slidingSeen = 0
   for _ in 0 ..< 240:
     sim.step(full)
-  for contact in sim.contacts:
-    doAssert contact.approachMmS >= 0, "a contact reported a negative approach"
-    doAssert contact.slideMmS >= 0, "a contact reported a negative slide"
+    for contact in sim.contacts:
+      inc seen
+      doAssert contact.approachMmS >= 0, "a contact reported a negative approach"
+      doAssert contact.slideMmS >= 0, "a contact reported a negative slide"
+      doAssert contact.normalMilliNewtons >= 0,
+        "a contact PULLED with " & $contact.normalMilliNewtons & " mN"
+      doAssert contact.normalMilliNewtons <= ContactForceCap,
+        "the normal force escaped its cap: " & $contact.normalMilliNewtons
+      doAssert contact.frictionMilliNewtons >= 0
+      # The slide the friction opposes, and the velocity change one substep of
+      # that friction can produce, both in um/tick.
+      let
+        slideUmPerTick = int64(contact.slideUmPerTick)
+        frictionDv = (int64(contact.frictionMilliNewtons) * 1_000_000) div
+          MassStepDen
+      if slideUmPerTick > 0:
+        inc slidingSeen
+        doAssert frictionDv < slideUmPerTick,
+          "friction reversed the slide: " & $frictionDv &
+            " um/tick against a slide of " & $slideUmPerTick
+  doAssert seen > 0, "the couch never reached a wall in 10 s"
+  doAssert slidingSeen > 0, "no contact ever slid, so friction was never tested"
   doAssert sim.contactTicks > 0, "the couch never reached a wall in 10 s"
-  report "contacts push and never stick"
+  report "contacts push, never stick, and friction never reverses the slide"
 
 proc feltStrainIsAnalytic() =
   ## With BOTH seats applying the same force the assembly translates, so each

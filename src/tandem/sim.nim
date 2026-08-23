@@ -324,7 +324,11 @@ proc accumulateContacts(sim: var SimServer, accum: var ContactAccum) =
       sim.contacts.add Contact(
         disc: int32(disc), x: px, y: py,
         approachMmS: umPerTickToMmS(max(0'i32, -vn)),
-        slideMmS: umPerTickToMmS(slide.d))
+        slideMmS: umPerTickToMmS(slide.d),
+        depthUm: depth,
+        slideUmPerTick: slide.d,
+        normalMilliNewtons: int32(normal),
+        frictionMilliNewtons: int32(friction))
 
 proc runSubstep(sim: var SimServer, forces: SeatForces, strain: var array[
     SeatCount, tuple[x, y: int64]]) =
