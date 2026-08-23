@@ -62,10 +62,12 @@ const
   TwistGain* {.intdefine: "TandemTwistGain".} = 5
     ## twist units per brad of heading error. A full twist from both seats
     ## accelerates the assembly at ~8 rad/s^2 against ~8 1/s of angular drag,
-    ## so it settles at ~1 rad/s -- 115 degrees in one 2 s turn. A gain that
-    ## turns a 45 degree error into a full twist therefore overshoots by a
-    ## factor of three and the couch pinwheels; 3 units per brad asks for
-    ## exactly the rate that closes the error inside one turn.
+    ## so it settles at ~1 rad/s -- 115 degrees in one 2 s turn, which is why
+    ## a gain that turns a 45 degree error into a full twist pinwheels. The
+    ## arithmetic argues for 3; the grid says 5, and the grid wins:
+    ## `--sweep TandemTwistGain=2,3,5,8,12` delivers 11/20, 16/20, 20/20,
+    ## 7/20, 0/20 at mean scores 0.418, 0.651, 0.794, 0.311, 0.069. Gain 5 is
+    ## a ridge, not a slope. See docs/BASELINE-TUNING.md.
   TwistDamp* {.intdefine: "TandemTwistDamp".} = 4
     ## twist units per 1/16-brad-per-tick of spin, subtracted: the D term that
     ## stops the alignment being a pure P controller on a low-drag rigid body.
