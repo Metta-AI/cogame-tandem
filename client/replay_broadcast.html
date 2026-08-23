@@ -2134,6 +2134,7 @@ body[data-embed] #board { top: 0; height: 100%; }
   // buttons with an aria-label and a title, and a click seeks to that tick.
   var beatSeen = {};
   var beatsPlaced = false;
+  var beatEls = [];
   function markBeat(tick, kind, team, label) {
     var key = tick + '|' + kind;
     if (beatSeen[key]) return;
@@ -2148,7 +2149,26 @@ body[data-embed] #board { top: 0; height: 100%; }
     mark.setAttribute('aria-label', text);
     mark.title = text;
     mark.onclick = function (ev) { ev.stopPropagation(); send('s:' + tick); };
+    mark.__tick = tick;
+    beatEls.push(mark);
     $('scrub').appendChild(mark);
+  }
+  // [spoilers] gate for TANDEM's markers. chrome_common gates its own
+  // `markerEls`, a closure-private array we cannot (and must not) reach into —
+  // the file is byte-frozen — so the game block runs the same rule over the
+  // buttons it created: with spoilers off, a beat ahead of the playhead is
+  // hidden and reveals itself as playback arrives. Same synchronous render
+  // pass as the rest of the readout, so there is no flash of spoiled chrome.
+  function applyTandemSpoilers(s) {
+    var on = getSpoilers();
+    for (var i = 0; i < beatEls.length; i++) {
+      var el = beatEls[i];
+      var hide = !on && el.__tick > (s.t || 0);
+      if (el.__hidden !== hide) {
+        el.__hidden = hide;
+        el.style.display = hide ? 'none' : '';
+      }
+    }
   }
   function beatLabel(b) {
     switch (b.k) {
@@ -2166,6 +2186,11 @@ body[data-embed] #board { top: 0; height: 100%; }
     beatsPlaced = true;
     for (var i = 0; i < s.beats.length; i++) {
       var b = s.beats[i];
+      // The >= 20 filter is applied where the list is BUILT (replays.nim,
+      // ImpactBeatDamage) so live events and the precomputed list agree; this
+      // is the same guard the live path uses, kept here so a stream from an
+      // older server cannot bury the real beats either.
+      if (b.k === 'impact' && (b.dmg || 0) < 20) continue;
       var kind = (b.k === 'gameover') ? 'over' : b.k;
       markBeat(b.t, kind, b.team || '', beatLabel(b));
     }
@@ -2242,6 +2267,7 @@ body[data-embed] #board { top: 0; height: 100%; }
     renderRoute(s);
     renderFeed(s);
     tandemIngestBeats(s);
+    applyTandemSpoilers(s);
   }
 
   relayout();

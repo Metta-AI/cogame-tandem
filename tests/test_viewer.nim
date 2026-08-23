@@ -108,6 +108,17 @@ proc beatsAreLabelledButtons() =
   for kind in BeatKindsEmitted:
     doAssert (".beat-marker." & kind) in page,
       "no CSS rule for the `" & kind & "` beat kind"
+  # The [spoilers] gate. chrome_common gates its own `markerEls`, a
+  # closure-private array the byte-frozen file does not export, so the game
+  # block runs the same rule over the buttons it created — otherwise every
+  # beat AHEAD of the playhead is visible with spoilers off.
+  doAssert "function applyTandemSpoilers(s)" in page,
+    "tandem's beat markers have no spoiler gate"
+  doAssert "getSpoilers()" in page, "the spoiler gate never reads the toggle"
+  doAssert "applyTandemSpoilers(s);" in page,
+    "the spoiler gate is never called from the per-frame hook"
+  doAssert "el.__tick > (s.t || 0)" in page,
+    "the spoiler gate does not compare the beat tick to the playhead"
   report "every beat kind is a labelled, clickable button with its own CSS"
 
 proc legibleAt360() =

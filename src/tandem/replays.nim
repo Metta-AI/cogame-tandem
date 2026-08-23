@@ -93,6 +93,12 @@ const
     "gameover"]
     ## The scrubber markers. `scrape` is deliberately absent: it is throttled
     ## to one per disc per 6 ticks and would still bury the real beats.
+  ImpactBeatDamage* = 20
+    ## ...and an `impact` is a beat only at 20 points or more (design note
+    ## §Record vocabulary B, "`impact` (>= 20 points)"). The SIM emits the
+    ## event from 8 points up, for the feed and the spark FX, so the filter
+    ## belongs here, where the scrubber's list is built — the page already
+    ## filters the LIVE events at the same number.
   LullBreakingKinds* = ["doorway", "impact", "drop", "regrip", "wrecked",
     "delivered", "gameover"]
   TandemReplayMagic* = "COWLDTDM"
@@ -391,8 +397,12 @@ proc advanceReplayScan*(replay: var ReplayPlayer, maxTicks: int) =
     var stepBeats = newJArray()
     scan.sim.stepEvents(scan.beatTracker, stepBeats)
     for event in stepBeats:
-      if event["k"].getStr() in BeatKinds:
-        replay.beatEvents.add(event)
+      if event["k"].getStr() notin BeatKinds:
+        continue
+      if event["k"].getStr() == "impact" and
+          event{"dmg"}.getInt() < ImpactBeatDamage:
+        continue
+      replay.beatEvents.add(event)
     for event in stepBeats:
       if event["k"].getStr() in LullBreakingKinds:
         scan.beatTicks.add(scan.sim.tickCount)
