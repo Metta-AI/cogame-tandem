@@ -17,9 +17,22 @@ import
   std/strutils,
   sim, orders, control
 
+const TuningSeeds* = [
+  4417231, 7, 991, 20260823, 31337, 555, 12, 909_090, 4242, 6161,
+  777_001, 88, 246_802, 13_579, 101_101, 202_202, 303_303, 404_404,
+  505_505, 606_606
+]
+  ## The committed seed list every tuning claim below was measured over.
+  ## `tools/tune_baselines.nim` sweeps against it and `tests/test_baselines.nim`
+  ## pins the shipped configuration's outcome on it, so a constant that was
+  ## tuned on one set of courses cannot be pinned on another.
+
 ## The tuning constants are `{.intdefine.}` so the grid harness can sweep them
 ## from the command line (`-d:TandemLookahead=2800000`) without editing the
-## source. The harness is `tools/tune_baselines.nim`.
+## source. The harness is `tools/tune_baselines.nim` — run it with `--eval` to
+## reproduce the numbers quoted below for the shipped defaults, or with
+## `--sweep TandemMuleEffort=64,140,255` to re-run a grid. The sweeps these
+## constants came out of are logged in `docs/BASELINE-TUNING.md`.
 const
   Lookahead* {.intdefine: "TandemLookahead".} = 2_600_000
     ## micrometres of pure-pursuit lead along the route polyline. The polyline
@@ -33,8 +46,11 @@ const
     ## Both seats at full effort settle at 2.5 m/s, which is 1.56x the 1.6 m/s
     ## reference pace `parTicks` is built from. That headroom is not optional:
     ## a carry that cruises AT par has nothing left for the corners, the
-    ## bracing and the doorway approaches, and measured over the committed
-    ## seed list it never finished inside `maxTicks`. See tools/tune_porter.nim.
+    ## bracing and the doorway approaches. Swept over the committed seed list
+    ## (`tools/tune_baselines.nim --sweep TandemOpenEffort=128,160,200,255`):
+    ## 18/20, 19/20, 18/20, 20/20 deliveries at mean scores 0.637, 0.704,
+    ## 0.695, 0.794. Full effort costs condition (219 mean damage against 68
+    ## at half) and buys the deliveries anyway. See docs/BASELINE-TUNING.md.
   OpenYield* {.intdefine: "TandemOpenYield".} = 51         ## 0.20
   ConflictYield* {.intdefine: "TandemConflictYield".} = 140 ## 0.55
   LeadYield* {.intdefine: "TandemLeadYield".} = 26          ## 0.10
@@ -51,10 +67,14 @@ const
     ## factor of three and the couch pinwheels; 3 units per brad asks for
     ## exactly the rate that closes the error inside one turn.
   TwistDamp* {.intdefine: "TandemTwistDamp".} = 4
-    ## twist units per 1/16-brad-per-tick of spin, subtracted. Without this
-    ## damping term the alignment is a pure P controller on a low-drag rigid
-    ## body, which oscillates instead of settling (measured: the heading swung
-    ## +/- 90 degrees every turn and the couch never cleared a doorway).
+    ## twist units per 1/16-brad-per-tick of spin, subtracted: the D term that
+    ## stops the alignment being a pure P controller on a low-drag rigid body.
+    ## Measured on the shipped gain it is NOT load-bearing -- the
+    ## `TandemTwistGain=3,5,8` x `TandemTwistDamp=0,4,8` grid gives 20/20 at
+    ## gain 5 for damp 0, 2 and 4, with damp 0 0.008 of mean score ahead. It is
+    ## kept at 4 because re-tuning a sim constant moves the per-tick gameHash
+    ## chain and the golden fixture with it. docs/BASELINE-TUNING.md has the
+    ## whole grid.
   SpinDeadQ* {.intdefine: "TandemSpinDead".} = 3 * 256
   RampUm* {.intdefine: "TandemRamp".} = 3_000_000
     ## the couch is asked for full effort beyond this distance from its

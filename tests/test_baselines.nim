@@ -5,11 +5,10 @@
 import std/[random, strutils, unicode]
 import lib/helpers
 
-const Seeds = [
-  4417231, 7, 991, 20260823, 31337, 555, 12, 909_090, 4242, 6161,
-  777_001, 88, 246_802, 13_579, 101_101, 202_202, 303_303, 404_404,
-  505_505, 606_606
-]
+const Seeds = TuningSeeds
+  ## The committed seed list lives beside the constants it tuned
+  ## (`baselines.TuningSeeds`), so `tools/tune_baselines.nim` and this
+  ## anti-regression pin measure the same twenty courses.
 
 proc boundedOrders() =
   ## For 500 pseudo-random world states x both baselines, the emitted order
