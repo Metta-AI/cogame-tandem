@@ -190,6 +190,27 @@ proc noAliasIsShadowed() =
           " the local one its own name."
   report "no chrome alias is shadowed by a declaration in the same scope"
 
+proc verdictCapCarriesTheEnding() =
+  ## The scrubber's winner cap and verdict chip are chrome_common's, and its
+  ## vocabulary is a WINNER or a draw — which a fully cooperative game never
+  ## has, so `over.winner` is "" and its `setVerdict` returns before touching
+  ## them. Tandem's verdict is the ENDING, and the game block drives both
+  ## elements with that vocabulary, one tint per `endRule`.
+  let page = repoFile("client/replay_broadcast.html")
+  doAssert "function renderVerdict(s)" in page,
+    "nothing drives the scrubber's verdict cap"
+  doAssert "renderVerdict(s);" in page,
+    "the verdict cap is never rendered from the per-frame hook"
+  for rule in ["delivered", "wrecked", "out_of_time", "wall_clock",
+               "sim_fault", "host_error"]:
+    doAssert ("    " & rule & ": '") in page,
+      "the verdict cap has no label for the `" & rule & "` ending"
+    doAssert (".scrub-win." & rule) in page,
+      "the verdict cap has no tint for the `" & rule & "` ending"
+  doAssert "'scrub-win' + (label ? ' show ' + rule : '')" in page,
+    "the cap does not use the class its inherited CSS rule needs (.show)"
+  report "the scrubber's verdict cap carries the ending, not a winner"
+
 proc feedRowsAreNotDoubleEscaped() =
   ## §Viewer readout 9: the match feed is where a spectator reads the LLM's
   ## own words. `esc()` returns HTML entities and `textContent` then displays
@@ -314,6 +335,7 @@ when isMainModule:
   transportRules()
   beatsAreLabelledButtons()
   noAliasIsShadowed()
+  verdictCapCarriesTheEnding()
   feedRowsAreNotDoubleEscaped()
   legibleAt360()
   noCtfIdentifiersSurvive()

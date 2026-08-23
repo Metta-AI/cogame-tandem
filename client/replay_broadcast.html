@@ -1283,6 +1283,16 @@ body[data-embed] #board { top: 0; height: 100%; }
 .beat-marker.cobalt { box-shadow: inset 0 calc(3 * var(--u)) 0 var(--blue); }
 .beat-marker.rust { box-shadow: inset 0 calc(3 * var(--u)) 0 var(--red); }
 
+/* Verdict cap + chip. The inherited rules colour both from --tc; tandem's
+   verdict is the ENDING (there is no winner in a cooperative game), so one
+   tint per endRule. */
+.scrub-win.delivered, .win-chip.delivered { --tc: var(--green); }
+.scrub-win.wrecked, .win-chip.wrecked { --tc: var(--red); }
+.scrub-win.out_of_time, .win-chip.out_of_time,
+.scrub-win.wall_clock, .win-chip.wall_clock { --tc: var(--amber); }
+.scrub-win.sim_fault, .win-chip.sim_fault,
+.scrub-win.host_error, .win-chip.host_error { --tc: var(--paper-dim); }
+
 /* Endcard meter table (chrome_common's ec-* machinery holds the frame). */
 #ec-teams .tandem-meters {
   display: grid; grid-template-columns: repeat(5, minmax(0, 1fr));
@@ -2277,6 +2287,38 @@ body[data-embed] #board { top: 0; height: 100%; }
     if (host.innerHTML !== html) host.innerHTML = html;
   }
 
+  // ---------- the scrubber's verdict cap ----------
+  // chrome_common's verdict vocabulary is a WINNER (or a draw), which a fully
+  // cooperative game does not have: `over.winner` is "" and `over.draw` is
+  // false, so its setVerdict returns before it touches anything and #scrub-win
+  // / #win-chip stay inert forever. Tandem's verdict is the ENDING — delivered,
+  // wrecked, out of time — so the game block drives those two elements itself,
+  // in that vocabulary. chrome_common never writes them (it bails while its own
+  // `verdict` is null), so there is nothing to fight over.
+  //
+  // No spoiler gate is needed: `over` rides game-over frames only, so the cap
+  // can only appear with the playhead already at the end, and the same
+  // per-frame hook takes it down again on any seek away.
+  var VERDICT_LABEL = {
+    delivered: 'DELIVERED',
+    wrecked: 'COUCH WRECKED',
+    out_of_time: 'OUT OF TIME',
+    wall_clock: 'TIME BUDGET',
+    sim_fault: 'FAULT',
+    host_error: 'FAULT'
+  };
+  function renderVerdict(s) {
+    var over = (s.ph === 'gameover') ? s.over : null;
+    var rule = over ? (over.endRule || '') : '';
+    var label = over ? (VERDICT_LABEL[rule] || 'GAME OVER') : '';
+    var cap = $('scrub-win');
+    var chip = $('win-chip');
+    cap.className = 'scrub-win' + (label ? ' show ' + rule : '');
+    cap.title = label;
+    chip.textContent = label;
+    chip.className = 'win-chip' + (label ? ' show ' + rule : '');
+  }
+
   // ---------- the per-frame hook ----------
   // onFrame (inherited, untouched) calls renderScorebug(s) once per frame;
   // tandem's whole readout hangs off it.
@@ -2287,6 +2329,7 @@ body[data-embed] #board { top: 0; height: 100%; }
     renderFeed(s);
     tandemIngestBeats(s);
     applyTandemSpoilers(s);
+    renderVerdict(s);
   }
 
   relayout();
