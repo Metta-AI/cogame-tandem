@@ -91,7 +91,8 @@ CONFIG_SCHEMA = {
     "additionalProperties": False,
     "required": ["tokens", "players"],
     "properties": {
-        "tokens": {"type": "array", "items": {"type": "string"},
+        "tokens": {"type": "array", "minItems": 2, "maxItems": 2,
+                   "items": {"type": "string"},
                    "description": "Per-slot auth tokens, positional."},
         "players": {"type": "array", "minItems": 2, "maxItems": 2,
                     "items": {"type": "object",
