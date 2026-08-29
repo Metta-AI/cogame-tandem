@@ -280,6 +280,67 @@ proc scrapesAndDoorways() =
   doAssert "gameover" in kinds
   report "the derived event stream carries scrapes, doorways and game over"
 
+proc halfSpeedIsAReplayOnlyCrawl() =
+  ## The fleet-wide 1/2x replay speed: command '5' selects
+  ## ReplayHalfSpeedIndex, the chrome shows 0.5, and the step budget spends
+  ## one tick every OTHER frame (halfPhase parity) outside a lull. Inside a
+  ## lull with skip-lulls on, the boost still wins — half speed slows the
+  ## ACTION, it does not re-slow the dead time the boost exists to skip.
+  var replay = ReplayPlayer()
+  replay.speedIndex = 0
+  applySpeedCommand(replay.speedIndex, '5')
+  doAssert replay.speedIndex == ReplayHalfSpeedIndex, "'5' must select 1/2x"
+  doAssert replay.replayDisplaySpeed() == 0.5,
+    "the chrome speed at 1/2x is 0.5, got " & $replay.replayDisplaySpeed()
+  doAssert replay.replaySpeed() == 1,
+    "the integer speed clamps to 1x at 1/2x (live loop safety)"
+  replay.skipLulls = false
+  replay.halfPhase = false
+  doAssert replay.replayStepBudget(0) == 0, "even frame at 1/2x spends no tick"
+  replay.halfPhase = true
+  doAssert replay.replayStepBudget(0) == 1, "odd frame at 1/2x spends one tick"
+  replay.skipLulls = true
+  replay.lullSpans = @[[0, 10]]
+  replay.halfPhase = false
+  doAssert replay.replayStepBudget(0) == LullSpeedBoost,
+    "the lull boost must survive half speed"
+  applySpeedCommand(replay.speedIndex, '+')
+  doAssert replay.speedIndex == 0, "'+' from 1/2x lands on 1x"
+  applySpeedCommand(replay.speedIndex, '-')
+  doAssert replay.speedIndex == ReplayHalfSpeedIndex, "'-' from 1x lands on 1/2x"
+  applySpeedCommand(replay.speedIndex, '-')
+  doAssert replay.speedIndex == ReplayHalfSpeedIndex, "1/2x is the floor"
+  doAssert replay.replayDisplaySpeed() == 0.5
+  report "1/2x is a replay-only crawl: '5', 0.5 on the wire, every other frame"
+
+proc halfSpeedAdvancesEveryOtherFrame() =
+  ## The parity is flipped by advanceReplayPlayback itself, so a REAL playback
+  ## run at 1/2x covers half the ticks a 1x run of the same frame count does.
+  let path = tempPath("halfspeed.replay")
+  removeFile(path)
+  discard recordEpisode(path)
+  let data = parseReplayBytes(readFile(path))
+
+  proc ticksOver(frames: int, command: char): int =
+    var runtime = initReplayRuntime(data, mismatchQuit = false,
+      gameEventLoggingEnabled = false)
+    var sim = move(runtime.sim)
+    var player = move(runtime.player)
+    player.skipLulls = false
+    player.looping = false
+    applySpeedCommand(player.speedIndex, command)
+    let startTick = sim.tickCount
+    for _ in 0 ..< frames:
+      player.advanceReplayPlayback(sim, proc () = discard, proc () = discard)
+    sim.tickCount - startTick
+
+  let full = ticksOver(40, '1')
+  let half = ticksOver(40, '5')
+  doAssert full == 40, "1x advanced " & $full & " ticks over 40 frames"
+  doAssert half == 20, "1/2x advanced " & $half & " ticks over 40 frames"
+  removeFile(path)
+  report "40 playback frames spend 40 ticks at 1x and 20 at 1/2x"
+
 when isMainModule:
   episodeWritesEverything()
   replayReproducesEveryHash()
@@ -289,4 +350,6 @@ when isMainModule:
   beatsAreTheNotesBeats()
   deliveryIsABeat()
   scrapesAndDoorways()
+  halfSpeedIsAReplayOnlyCrawl()
+  halfSpeedAdvancesEveryOtherFrame()
   echo "test_replay: the replay is self-sufficient and reproduces every hash"

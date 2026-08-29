@@ -135,8 +135,8 @@ proc twoNameSpaces() =
       doAssert player.address notin message,
         "the real name `" & player.address & "` leaked into the LLM view"
     doAssert seatAlias(seat) in message, "the seat's own alias is missing"
-  let chrome = sim.buildStateJson(newJArray(), true, 1, 2400, false, true, -1,
-    -1)
+  let chrome = sim.buildStateJson(newJArray(), true, 1.0, 2400, false, true,
+    -1, -1)
   var found = 0
   for player in sim.players:
     if player.address in chrome:

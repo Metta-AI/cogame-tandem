@@ -5,6 +5,7 @@
 
 import std/[os, strutils]
 import lib/helpers
+import tandem/wire_constants
 
 const InheritedChromeIds = [
   "viewport", "stage", "board", "lightpool", "grain", "chrome", "scorebug",
@@ -40,21 +41,32 @@ const BeatKindsEmitted = [
 ]
 
 proc chromeIsTheStarters() =
-  ## `chrome_common.js` is byte-identical to coworld-ctf's copy. The pin is a
-  ## length + digest of the file, so a "small tidy-up" cannot slip through.
+  ## `chrome_common.js` is coworld-ctf's copy plus the fleet-wide replay
+  ## transport patch (the 0.5x speed chip and tandem's own wire global). The
+  ## pin is a length + digest of the file, so a "small tidy-up" cannot slip
+  ## through.
   let js = repoFile("client/chrome_common.js")
-  doAssert js.len == 40_022,
-    "client/chrome_common.js is " & $js.len & " bytes; the starter's is 40022" &
-      " — it must be copied BYTE-FOR-BYTE"
+  doAssert js.len == 40_040,
+    "client/chrome_common.js is " & $js.len & " bytes; the patched starter's" &
+      " is 40040 — nothing else may be edited or reformatted"
   var checksum = 1469598103934665603'u64
   for ch in js:
     checksum = checksum xor uint64(ord(ch))
     checksum = checksum * 1099511628211'u64
-  doAssert checksum == 0x6034cf58c85dd060'u64,
+  doAssert checksum == 0x7e6927edf2f34d2d'u64,
     "client/chrome_common.js has been edited (fnv1a " &
       toHex(checksum) & ")"
   doAssert "window.ChromeCommon = function (ctx)" in js
-  report "chrome_common.js is byte-for-byte the starter's"
+  # The transport patch itself, named so a future re-copy of the pristine
+  # starter fails on WHAT is missing rather than on an opaque digest.
+  doAssert "var WIRE = window.TANDEM_WIRE || {};" in js,
+    "the chrome reads a wire global tandem never emits, so the engine's" &
+      " PlaybackSpeeds table cannot drive the speed chips"
+  doAssert "[0.5, 1, 2, 3, 4, 8, 16]" in js,
+    "the chrome's speed fallback lost the 0.5x replay speed"
+  doAssert "{ 0.5: '5'," in js,
+    "the 0.5x chip has no command char, so clicking it sends nothing"
+  report "chrome_common.js is the starter's plus the pinned transport patch"
 
 proc chromeMarkup() =
   let page = repoFile("client/replay_broadcast.html")
@@ -95,6 +107,39 @@ proc transportRules() =
   doAssert "bottom: calc(var(--band, 0px) + 10 * var(--u))" in page,
     "tandem's overlays are not offset from var(--band)"
   report "the transport rules hold: --band/--hudscale, nothing over the band"
+
+proc spacePausesOnEveryShippedPage() =
+  ## Both pages the bundle serves (index.html from replay_broadcast.html,
+  ## league.html from league_replayer.html) must pause on Space. The board
+  ## page owns the playback state, so its Space toggles directly; the league
+  ## shell embeds the board in an IFRAME and keydown does not cross that
+  ## boundary, so the shell has to forward the ' ' command down the same
+  ## postMessage channel its play button uses — otherwise Space is dead
+  ## whenever the shell chrome (transport, rosters, scrubber) holds focus.
+  let board = repoFile("client/replay_broadcast.html")
+  doAssert "if (k === ' ') { ev.preventDefault(); togglePlay(); }" in board,
+    "the board page no longer pauses on Space"
+  doAssert "function togglePlay() { send(' '); }" in board,
+    "the board's Space binding no longer reaches the playback channel"
+  let shell = repoFile("client/league_replayer.html")
+  doAssert "else if(ev.key===' '){ ev.preventDefault(); sendCmd(' '); }" in
+    shell,
+    "the league shell does not forward Space down the command channel, so" &
+      " Space is dead while the shell chrome holds focus"
+  report "Space pauses on the board page and in the league shell"
+
+proc halfSpeedChipIsWired() =
+  ## The 0.5x chip is chrome_common's (pinned above); this checks the pieces
+  ## OUTSIDE it that the chip needs: the engine's emitted wire list carries
+  ## 0.5 ahead of PlaybackSpeeds, and both pages already forward the '5'
+  ## keystroke the chip's map sends.
+  doAssert "speeds:[0.5," in WireConstantsJs,
+    "the emitted wire constants do not offer the 0.5x speed: " &
+      WireConstantsJs
+  let board = repoFile("client/replay_broadcast.html")
+  doAssert "else if (k >= '1' && k <= '9') send(k);" in board,
+    "the board page no longer forwards the digit keys, so '5' (1/2x) is dead"
+  report "the 0.5x speed reaches the chrome from the engine's own table"
 
 proc beatsAreLabelledButtons() =
   let page = repoFile("client/replay_broadcast.html")
@@ -275,10 +320,9 @@ proc legibleAt360() =
   report "the scorebug stays legible at 360 px"
 
 proc noCtfIdentifiersSurvive() =
-  ## Nothing may still call itself `ctf` — with ONE deliberate exception:
-  ## `client/chrome_common.js` is pinned BYTE-FOR-BYTE to the starter's copy,
-  ## and its one `window.CTF_WIRE` read falls back to the literals that are
-  ## already tandem's values (speeds [1,2,3,4,8,16], fps 24).
+  ## Nothing may still call itself `ctf`. `client/chrome_common.js` is left out
+  ## of the sweep because it is pinned by digest instead (chromeIsTheStarters):
+  ## it is the starter's file, edited only where the transport patch says so.
   for path in ["client/replay_broadcast.html", "client/broadcast_core.js",
                "client/league_replayer.html",
                "replay-viewer/static_replay.js",
@@ -369,6 +413,8 @@ when isMainModule:
   chromeIsTheStarters()
   chromeMarkup()
   transportRules()
+  spacePausesOnEveryShippedPage()
+  halfSpeedChipIsWired()
   beatsAreLabelledButtons()
   noAliasIsShadowed()
   verdictCapCarriesTheEnding()
