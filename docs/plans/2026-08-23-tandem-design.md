@@ -636,7 +636,7 @@ grep asserts no `ctf_`/`CTF_` identifier survives outside comments):
 | `src/ctf/broadcast.nim` | `stepEvents` / `BroadcastTracker` — the state-delta → broadcast-event derivation, retargeted to tandem's event kinds. |
 | `replay-viewer/config.nims`, `replay-viewer/static_replay.js`, `replay-viewer/static_replay_worker.js` | the emscripten link flags and the OffscreenCanvas Worker (§Viewer). |
 | `client/broadcast_core.js` | game-agnostic sprite-protocol ingest, canvas blit, zoom/pan, minimap. Verbatim apart from the one `window.CTF_WIRE` identifier. |
-| `client/chrome_common.js` | **byte-for-byte**, zero edits (§Viewer). |
+| `client/chrome_common.js` | the starter's file, digest-pinned. Its only edits are the fleet-wide replay transport patch (2026-08-28): the `TANDEM_WIRE` lookup and the 0.5x speed chip. |
 | `client/replay_broadcast.html`, `client/league_replayer.html` | the broadcast chrome, with a game block appended (§Viewer). |
 | `Dockerfile`, `Dockerfile.replay-viewer`, `tools/build_replay_viewer.sh`, `tools/expand_replay.nim`, `tools/extract_events.nim`, `tools/record_fixture.sh`, `tools/ci/check_gameversion.sh`, `nimby.lock`, `flake.nix` | build, bundle and forensics wiring. `tools/build_replay_viewer.sh` gets the `mkdir -p` of the output parent **before** the containment check (ecos, 2026-08-23: paintbot's hook exits 1 on a fresh CI checkout). |
 | `data/font.ttf`, `data/atlas/*`, `data/rig_real/blue/*`, `data/rig_real/red/*`, `data/ascii.png`, `data/darkbg.png`, `client/art/walls/*`, `client/art/lockerroom/{bg.jpg,blue_1,red_1}` | real art, kept. Everything CTF-specific (`soldier_*`, `heart_*`, `paintgun*`, `medkit`, `shield`, `spraycan`, `paintbomb`, `ped_*`, the green/yellow locker-room sprites) is deleted. |
@@ -1287,8 +1287,8 @@ the test.
     name and image match `{{TANDEM_IMAGE}}` / `coworld-tandem`; `config_schema` covers every field
     `sim_config.update` reads.
 11. **`tests/test_viewer.nim`** — static assertions over `client/replay_broadcast.html` and
-    `client/chrome_common.js`: `chrome_common.js` is **byte-identical** to the starter's copy
-    (sha256 pinned); `replay_broadcast.html` still contains ctf's `relayout()` with `--band`,
+    `client/chrome_common.js`: `chrome_common.js` is the starter's copy plus the replay transport
+    patch (digest pinned); `replay_broadcast.html` still contains ctf's `relayout()` with `--band`,
     `--topband` and the `--hudscale` clamp on `:root`; `#endcard { bottom: var(--band) }`;
     `#scorebug`, `#bannerlane`, `#killfeed`, `#transport`, `#mmwarn`, `#endcard`, `#momentum` and
     the `.tiny` block are present; `#viewpanel`, `#fpv` and `#povBadge` are **absent**; a
