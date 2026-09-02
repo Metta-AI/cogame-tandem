@@ -235,7 +235,12 @@ manifest = {
             },
             "source_url": SOURCE,
         },
-        "replay_viewer": {"bundle": "static-replay-viewer"},
+        "replay_viewer": {
+            "bundle": "static-replay-viewer",
+            # Public replay copies are stored gzipped; the wasm codec inflates
+            # them itself (allowCompressed in src/tandem/replays.nim).
+            "replay_compression": "gzip",
+        },
         "protocols": {
             "player": text(PLAYER_PROTOCOL),
             "global": text(GLOBAL_PROTOCOL),
