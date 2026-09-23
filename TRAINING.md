@@ -38,6 +38,26 @@ league play.
 One CPU optimizer step per variant with a local tiny model included every
 example and reduced heldout loss, verifying the Metta post-training path.
 
-Tandem's six continuous order fields require a separate numeric action codec
-for Metta RL and PufferLib. The current numeric Coworld bridge accepts a
-fixed discrete action set, so it does not represent this order space.
+## Numeric training
+
+The persistent bridge uses the certified variant configuration and each
+seat's exact `seatViewJson` player view. It exposes 201 fixed numeric features,
+including the local route, walls, pillars, own strain, and own last order.
+The other seat's order is never included. Both seats decide from the same
+pre-turn state. The five action heads are bearing in whole degrees, effort,
+yield, and brace in 256 steps, and twist in 511 steps. The bridge converts
+these choices to Tandem's six-field continuous order, then uses the production
+parser, replay record, controller, and simulator. Bearing is an approximation
+to the continuous drive direction. Both seats receive the game's joint score
+and the bounded utility `2 * jointScore - 1` for policy optimization.
+
+```sh
+nim c -d:release --path:src -o:/tmp/tandem-train-bridge tools/train_bridge.nim
+python3 tools/test_train_bridge.py /tmp/tandem-train-bridge
+```
+
+From Metta, use `recipes.external.coworld_metta_rl.train` or
+`recipes.external.coworld.train` with command
+`["/tmp/tandem-train-bridge", "<source>/coworld_manifest_template.json", "default"]`
+and `players=2`. Replace `default` with `sprint` for the second certified
+variant. Set a finite timestep limit for either trainer.
