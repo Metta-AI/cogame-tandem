@@ -185,7 +185,7 @@ jobs:
         run: docker build --platform=linux/amd64 -f Dockerfile.ordinary-player -t coworld-tandem-ordinary:ci .
 
       - name: Test ordinary player decisions
-        run: uv run --no-project --with websocket-client==1.8.0 python -m unittest discover -s players/ordinary -p 'test_*.py' -v
+        run: docker run --rm coworld-tandem-ordinary:ci python -m unittest discover -s /player -p 'test_*.py' -v
 
       - name: Raw-Docker episode smoke
         # SMOKE_SLUG is passed explicitly so the workflow's SLUG is the single
