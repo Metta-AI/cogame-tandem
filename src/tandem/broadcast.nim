@@ -168,7 +168,10 @@ proc applyRecord*(sim: var SimServer, text: string) =
         if sim.players[i].seat == seat:
           sim.players[i].policyLabel = node{"policy"}.getStr()
           sim.players[i].policyKind =
-            if node{"kind"}.getStr() == "llm": pkLlm else: pkScripted
+            case node{"kind"}.getStr()
+            of "llm": pkLlm
+            of "external": pkExternal
+            else: pkScripted
           sim.players[i].baseline = node{"baseline"}.getStr()
           sim.players[i].registered = true
       sim.feed.add FeedLine(tick: int32(sim.tickCount), kind: "register",

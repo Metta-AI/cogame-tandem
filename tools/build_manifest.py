@@ -33,7 +33,8 @@ ws://<host>:<port>/player?slot=N&token=T (0 = Cobalt, the fore handle;
 carrying its registration:
 
   {"type":"register","prompt":"<strategy text or empty>",
-   "scripted":"porter"|"mule"|null,"policy":"<free label>"}
+   "scripted":"porter"|"mule"|null,"policy":"<free label>",
+   "external":true|false}
 
 A seat with a non-empty `prompt` is an LLM seat; otherwise it is the named
 scripted baseline, defaulting to `porter`. Registration is re-sent once after
@@ -41,9 +42,19 @@ the first received frame, in case the first send raced slot registration. The
 server consumes it, records a REDACTED `register` replay record (policy label
 and kind, never the prompt) and drops any other chat text.
 
-After that the seat only RECEIVES: one binary Sprite v1 frame per tick, and it
-answers each with the Ready packet (0x85). PLAYER SOCKETS CONTRIBUTE NO INPUT --
-the server computes both force vectors from the orders.
+An `external:true` player is an ordinary policy on the same authenticated
+socket. Every turn it receives a private JSON text frame with `type:turn`,
+`turn`, `system`, `user`, and two complete `candidates` (porter and mule). It
+replies with `{"type":"decision","turn":N,"action":{...}}`. The game parses,
+quantizes, and records that action through the same replay path as an LLM
+reply, then sends `{"type":"decision_result","turn":N,"accepted":true|false}`.
+The final text frame carries the shared scores and end reason. The binary
+Sprite frames and Ready packet remain unchanged, and no seat receives the
+partner's private order.
+
+After registration every seat receives one binary Sprite v1 frame per tick and
+answers each with the Ready packet (0x85). The server computes both force
+vectors from the recorded orders; Sprite input masks are ignored.
 
 Every 48 ticks (2.0 s of sim time) the GAME SERVER asks both seats' LLMs, in ONE
 parallel batch, for a single JSON object:

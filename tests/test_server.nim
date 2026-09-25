@@ -24,6 +24,17 @@ proc registrationBecomesARedactedRecord() =
   doAssert not node.hasKey("prompt")
   report "registration is consumed and recorded REDACTED"
 
+proc externalRegistrationUsesTheSamePlayerSocket() =
+  let reg = registrationOf($ %*{
+    "type": "register", "prompt": "private operator guidance",
+    "scripted": newJNull(), "external": true,
+    "policy": "tandem-jev"}, Cobalt, SeatPolicy())
+  doAssert reg.ok and reg.policy.kind == pkExternal
+  doAssert reg.policy.prompt == "private operator guidance"
+  doAssert parseJson(reg.record)["kind"].getStr() == "external"
+  doAssert "private operator guidance" notin reg.record
+  report "external policy registers through the player socket without leaking guidance"
+
 proc unchangedResendEarnsNoRecord() =
   let first = registrationOf($ %*{
     "type": "register", "prompt": "", "scripted": %"mule",
@@ -150,6 +161,7 @@ proc twoNameSpaces() =
 
 when isMainModule:
   registrationBecomesARedactedRecord()
+  externalRegistrationUsesTheSamePlayerSocket()
   unchangedResendEarnsNoRecord()
   longPromptIsTruncatedNotRejected()
   oversizePacketIsTruncatedNotDropped()

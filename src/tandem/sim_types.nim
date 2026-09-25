@@ -235,10 +235,12 @@ type
     osScripted
     osLlm
     osFallback
+    osExternal
 
   PolicyKind* = enum
     pkScripted
     pkLlm
+    pkExternal
 
   Order* = object
     ## One seat's carry parameters for one 48-tick decision turn, ALREADY
@@ -526,6 +528,7 @@ proc sourceText*(source: OrderSource): string {.inline.} =
   of osScripted: "scripted"
   of osLlm: "llm"
   of osFallback: "fallback"
+  of osExternal: "external"
 
 proc reasonText*(reason: EndReason): string {.inline.} =
   case reason
@@ -546,6 +549,7 @@ proc policyKindText*(kind: PolicyKind): string {.inline.} =
   case kind
   of pkScripted: "scripted"
   of pkLlm: "llm"
+  of pkExternal: "external"
 
 proc discRadius*(disc: int): int32 {.inline.} =
   if disc < HullDiscs: HullRadius else: CogRadius
