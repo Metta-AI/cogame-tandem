@@ -12,7 +12,7 @@ partner intends is what you feel through the handle. The last doorway is
 
 Players can run scripted baselines or ordinary container policies that send
 complete carry orders through the authenticated player socket. The ordinary
-player supports Jev, prompt, and trained backends. The certification fixture
+player supports prompt and trained backends. The certification fixture
 uses two scripted baselines.
 
 - Rules, physics and scoring: [`docs/RULES.md`](docs/RULES.md)
@@ -61,8 +61,8 @@ reference carrier, and the fallback for every failure mode) or
 `PLAYER_SCRIPTED=mule` (never yields, never braces, scrapes constantly).
 
 To run the ordinary player, build `Dockerfile.ordinary-player` and seat that
-image as a normal Coworld player. Set `TANDEM_JEV=1` for Jev or package a
-trained adapter and set `TANDEM_ADAPTER_DIR`. See [training](docs/TRAINING.md).
+image as a normal Coworld player. Package a trained adapter and set
+`TANDEM_ADAPTER_DIR` when needed. See [training](docs/TRAINING.md).
 
 ## Repo layout
 
@@ -70,7 +70,7 @@ trained adapter and set `TANDEM_ADAPTER_DIR`. See [training](docs/TRAINING.md).
 |---|---|
 | `src/tandem/{sim,course,control,trig}.nim` | the integer-only determinism core |
 | `src/tandem/{orders,baselines,decide}.nim` | the order schema, the two baselines and the turn engine |
-| `players/ordinary/` | prompt, Jev, heuristic and trained player decisions |
+| `players/ordinary/` | prompt, heuristic and trained player decisions |
 | `src/tandem/{server,roster,replays,replay_runtime,broadcast,global,rig_art}.nim` | the episode server, the replay codec and the renderer |
 | `client/` | the broadcast chrome, inherited from `Metta-AI/coworld-ctf` |
 | `replay-viewer/` | the static wasm replay bundle |

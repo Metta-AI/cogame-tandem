@@ -3,13 +3,11 @@
 Build `Dockerfile.ordinary-player` and seat the resulting image as a normal
 Coworld player. The original `baseline` roster remains the certification
 fixture. An ordinary player uses the authenticated Sprite player socket. Each
-turn, it receives a private view and constructs its own prompts or Jev choice
-questions. The game parses its complete carry order and installs the quantized
+turn, it receives a private view and constructs its own prompt and action.
+The game parses its complete carry order and installs the quantized
 order through the replay record.
 
-The default policy builds a view-based carry order. `TANDEM_JEV=1` asks Jev
-through System One to choose drive, effort, yield, twist, brace, and note
-independently. `TANDEM_ADAPTER_DIR` loads a trained adapter from
+The default policy builds a view-based carry order. `TANDEM_ADAPTER_DIR` loads a trained adapter from
 the player image with its matching local base model, PyTorch, Transformers,
 and PEFT installed. The player's `PLAYER_PROMPT` remains private to its seat.
 

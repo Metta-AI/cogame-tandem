@@ -1,4 +1,4 @@
-"""Tandem's player-side carry order and System One questions."""
+"""Tandem's ordinary player-side carry orders."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ import unittest
 from unittest.mock import patch
 
 from player import choose
-from policy import choice_questions, default_order
+from policy import default_order
 
 
 VIEW = {
@@ -29,28 +29,6 @@ class PlayerPolicyTest(unittest.TestCase):
         self.assertEqual(order["drive"], [1.0, 0.0])
         self.assertEqual(order["brace"], 0.5)
         self.assertEqual(set(order), {"note", "drive", "effort", "yield", "twist", "brace", "say"})
-
-    def test_jev_can_select_each_action_field(self) -> None:
-        questions = choice_questions(VIEW)
-        answers = {}
-        for name, question in questions.items():
-            count = len(question["criteria"])
-            answers[name] = {"type": "choice", "probabilities": {
-                str(i): 1.0 if i == count - 1 else 0.0 for i in range(count)
-            }}
-        response = io.BytesIO(json.dumps({"answers": answers}).encode())
-        with patch.dict(os.environ, {"TANDEM_JEV": "1", "TYPESAFE_API_KEY": "test"}), \
-                patch("urllib.request.urlopen", return_value=response) as urlopen:
-            action, source, system, user = choose({"view": VIEW}, None, "")
-        self.assertEqual(source, "jev")
-        self.assertEqual(action["effort"], 1)
-        self.assertEqual(action["yield"], 1)
-        self.assertEqual(action["twist"], 1)
-        self.assertEqual(action["brace"], 1)
-        self.assertIn('"alias":"Cobalt"', user)
-        self.assertIn("NO COMMUNICATION CHANNEL", system)
-        body = json.loads(urlopen.call_args.args[0].data)
-        self.assertEqual(set(body["questions"]), set(questions))
 
     def test_prompt_policy_calls_anthropic_from_player(self) -> None:
         answer = {"content": [{"text": json.dumps(default_order(VIEW))}]}

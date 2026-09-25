@@ -53,35 +53,3 @@ def default_order(view: dict) -> dict:
         "brace": 0.5 if door and door["dist_m"] < 2.5 else 0,
         "say": "",
     }
-
-
-def choice_questions(view: dict) -> dict:
-    base = default_order(view)
-    return {
-        "drive": {"type": "choice", "instructions": "Choose the direction to push the couch.",
-                  "criteria": {str(i): json.dumps({"name": name, "drive": drive})
-                               for i, (name, drive) in enumerate(directions(view))}},
-        "effort": {"type": "choice", "instructions": "Choose push effort.",
-                   "criteria": {str(i): str(v) for i, v in enumerate([0, 0.25, 0.5, 0.75, 1])}},
-        "yield": {"type": "choice", "instructions": "Choose compliance with felt partner force.",
-                  "criteria": {str(i): str(v) for i, v in enumerate([0, 0.25, 0.5, 0.75, 1])}},
-        "twist": {"type": "choice", "instructions": "Choose couch rotation; positive is counter-clockwise.",
-                  "criteria": {str(i): str(v) for i, v in enumerate([-1, -0.5, 0, 0.5, 1])}},
-        "brace": {"type": "choice", "instructions": "Choose grip bracing.",
-                  "criteria": {str(i): str(v) for i, v in enumerate([0, 0.5, 1])}},
-        "note": {"type": "choice", "instructions": "Choose a spectator note.",
-                 "criteria": {"0": base["note"], "1": "Follow the partner's felt force.",
-                              "2": "Ease through the next doorway."}},
-    }
-
-
-def order_from_choices(view: dict, selected: dict[str, int]) -> dict:
-    values = [0, 0.25, 0.5, 0.75, 1]
-    return {"drive": directions(view)[selected["drive"]][1],
-            "effort": values[selected["effort"]],
-            "yield": values[selected["yield"]],
-            "twist": [-1, -0.5, 0, 0.5, 1][selected["twist"]],
-            "brace": [0, 0.5, 1][selected["brace"]],
-            "note": [default_order(view)["note"], "Follow the partner's felt force.",
-                     "Ease through the next doorway."][selected["note"]],
-            "say": ""}

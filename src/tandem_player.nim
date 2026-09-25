@@ -1,4 +1,4 @@
-## Tandem's bundled scripted player. Prompt, Jev, and trained policies use
+## Tandem's bundled scripted player. Prompt and trained policies use
 ## players/ordinary/player.py and submit their orders on the player socket.
 ##
 ##   PLAYER_SCRIPTED=porter|mule       -> a scripted seat
