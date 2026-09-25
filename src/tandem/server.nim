@@ -744,7 +744,7 @@ proc runServerLoop*(
               let text = appState.chatMessages.getOrDefault(websocket, "")
               if text.len > 0:
                 registrations.add((ord(sim.players[index].seat), text))
-          appState.chatMessages.clear()
+                appState.chatMessages.del(websocket)
 
           for websocket, state in appState.globalViewers.pairs:
             globalViewers.add(websocket)
