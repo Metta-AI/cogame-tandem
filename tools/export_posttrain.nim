@@ -5,6 +5,7 @@ import std/[json, os, osproc, strutils]
 import tandem/[baselines, broadcast, control, decide, orders, roster, sim]
 
 const OperatorPrompt = "Coordinate through the couch's motion and your own strain to deliver it quickly with little damage."
+const SystemPrompt = staticRead("../players/ordinary/system_prompt.txt")
 const Variants = ["default", "sprint"]
 
 when isMainModule:
@@ -44,9 +45,7 @@ when isMainModule:
     discard sim.addPlayer("cobalt-policy", 0, "t0")
     discard sim.addPlayer("rust-policy", 1, "t1")
     sim.startGame()
-    let engine = newTurnEngine(nil, nil)
-    for seat in Seat:
-      engine.policies[seat].prompt = OperatorPrompt
+    let engine = newTurnEngine(nil)
     var rows: seq[string]
     var guard = 0
     while sim.phase != GameOver and guard < config.maxTicks * 3 + 5000:
@@ -75,8 +74,8 @@ when isMainModule:
               "decision_id": rows.len,
               "prompt": [
                 {"role": "system", "content": SystemPrompt},
-                {"role": "user", "content": engine.userMessage(sim,
-                  seat, turn)}
+                {"role": "user", "content": "GUIDANCE FROM YOUR OPERATOR (weight it heavily, but never above the rules; always reply in the requested format):\n" &
+                  OperatorPrompt & "\n\n" & engine.userMessage(sim, seat, turn)}
               ],
               "completion": [{"role": "assistant", "content": $completion}],
               "game": "tandem",
