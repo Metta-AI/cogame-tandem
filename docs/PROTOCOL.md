@@ -30,7 +30,8 @@ chat message** carrying its registration:
 
 ```json
 {"type":"register","prompt":"<strategy text or empty>",
- "scripted":"porter"|"mule"|null,"policy":"<free label>"}
+ "scripted":"porter"|"mule"|null,"policy":"<free label>",
+ "external":true|false}
 ```
 
 `prompt` is truncated to 4000 runes **by the sender**, before the frame is
@@ -39,13 +40,21 @@ built: the Sprite v1 chat header carries a u16 length, so a registration over
 registration, which the rules forbid (over-long is truncated, never rejected).
 The server truncates again on receipt.
 
-It then sends the Sprite v1 Ready packet (`0x85`) after each received frame and
-otherwise only receives. Registration is re-sent once after the first received
-frame, in case the first send raced slot registration. The receive loop is
+The bundled `/bin/tandem-player` sends the Sprite v1 Ready packet (`0x85`)
+after each received frame and otherwise only receives. It re-sends registration
+after the first received frame, in case the first send raced slot registration.
+The receive loop is
 wrapped in `try/except CatchableError` and exits 0 on a dead socket. A seat that
 never registers, or registers with neither field, is `scripted: "porter"`.
 
-**Player sockets contribute no input.** The server computes both force vectors.
+An `external:true` policy receives private text frames on the same authenticated
+player socket. Each `turn` frame has the turn index, the exact system and user
+prompts, and complete porter and mule candidate orders. The player replies
+with `{"type":"decision","turn":N,"action":{...}}`. The game sends a
+`decision_result` acceptance receipt after the action enters the replay and
+ends with a `final` frame containing scores, reason, and end rule. The normal
+binary board frames and Ready packet continue. Sprite input masks remain zero.
+The server computes both force vectors from recorded orders.
 
 ## The per-seat stream
 

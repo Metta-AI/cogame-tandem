@@ -126,6 +126,19 @@ proc emptyOrder*(): Order =
   Order(turn: -1, source: osScripted, driveX: 4096, driveY: 0,
     effort: 0, yieldQ: 64, twist: 0, brace: 0)
 
+proc orderReplyJson*(order: Order): JsonNode =
+  ## The complete player reply represented by one quantised game order.
+  %*{
+    "note": order.note,
+    "drive": [float(order.driveX) / 4096.0,
+              float(order.driveY) / 4096.0],
+    "effort": float(order.effort) / 255.0,
+    "yield": float(order.yieldQ) / 255.0,
+    "twist": float(order.twist) / 255.0,
+    "brace": float(order.brace) / 255.0,
+    "say": order.say
+  }
+
 proc orderJson*(sim: SimServer, seat: Seat, order: Order): JsonNode =
   ## The `order` replay chat record — the action log. `q` carries the EXACT
   ## quantised integers the sim hashed, so playback re-installs them bit for
@@ -174,6 +187,7 @@ proc orderFromRecord*(node: JsonNode): tuple[order: Order, ok: bool] =
     case node{"source"}.getStr()
     of "llm": osLlm
     of "fallback": osFallback
+    of "external": osExternal
     else: osScripted
   (order, true)
 

@@ -10,9 +10,9 @@ the partner shows up as a wall scrape or a drop. The only signal about what your
 partner intends is what you feel through the handle. The last doorway is
 1.05 m wide; the couch is 0.90 m.
 
-A policy is just a prompt. Both champions are LLM prompt policies; both fillers
-are scripted baselines; all four run the same image, switched by an environment
-variable.
+Players can run game-hosted prompt policies, scripted baselines, or ordinary
+container policies that send complete carry orders through the authenticated
+player socket. The certification fixture uses two scripted baselines.
 
 - Rules, physics and scoring: [`docs/RULES.md`](docs/RULES.md)
 - Wire protocol, replay format and the reply schema: [`docs/PROTOCOL.md`](docs/PROTOCOL.md)
@@ -20,6 +20,7 @@ variable.
 - Design note: [`docs/plans/2026-08-23-tandem-design.md`](docs/plans/2026-08-23-tandem-design.md)
 - Working in this repo (determinism contract, frozen files, tests): [`AGENTS.md`](AGENTS.md)
 - Tuning the scripted baselines: [`docs/BASELINE-TUNING.md`](docs/BASELINE-TUNING.md)
+- Ordinary player collection and post-training: [`docs/TRAINING.md`](docs/TRAINING.md)
 
 ## Scoring
 
@@ -54,6 +55,10 @@ coworld upload-policy coworld-tandem:latest --name my-tandem \
 or run a scripted seat: `PLAYER_SCRIPTED=porter` (the strain-arbitrated
 reference carrier, and the fallback for every failure mode) or
 `PLAYER_SCRIPTED=mule` (never yields, never braces, scrapes constantly).
+
+To run the ordinary player, build `Dockerfile.ordinary-player` and seat that
+image as a normal Coworld player. Set `TANDEM_JEV=1` for Jev or package a
+trained adapter and set `TANDEM_ADAPTER_DIR`. See [training](docs/TRAINING.md).
 
 ## Repo layout
 

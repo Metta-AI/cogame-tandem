@@ -55,6 +55,7 @@ Schema:
 type
   BatchCall* = object
     seat*: int
+    turn*: int
     system*, user*: string
 
   BatchReply* = object
@@ -87,6 +88,8 @@ type
     lastBatchAt*: MonoTime
     hasBatched*: bool
     records*: seq[string]      ## the replay chat records this turn produced.
+    candidates*: array[Seat, JsonNode]
+    externalAccepted*: array[Seat, bool]
 
 # --------------------------------------------------------------------------
 # The per-seat view
@@ -323,6 +326,7 @@ proc turn*(
   ## through `applyRecord`, so the live sim and the replay install bit-identical
   ## integers.
   engine.records.setLen(0)
+  engine.externalAccepted = [false, false]
   let
     deadline = getMonoTime() + initDuration(
       milliseconds = max(1, sim.config.turnBudgetMs))
@@ -359,7 +363,8 @@ proc turn*(
       resolved[seat] = sim.baselineOrder(seat, policy.baseline, turnIndex)
       settled[seat] = true
     elif engine.llmOff or engine.batch.isNil or
-        (not engine.client.isNil and engine.client.disabled):
+        (policy.kind == pkLlm and not engine.client.isNil and
+         engine.client.disabled):
       # A nil CLIENT with a live batch is the test seam (tests/test_engine.nim
       # injects a fake transport); a nil BATCH is the real no-credentials path.
       resolved[seat] = engine.fallbackFor(sim, seat, turnIndex)
@@ -382,6 +387,7 @@ proc turn*(
     else:
       calls.add BatchCall(
         seat: ord(seat),
+        turn: turnIndex,
         system: SystemPrompt,
         user: engine.userMessage(sim, seat, turnIndex))
 
@@ -426,12 +432,21 @@ proc turn*(
           else: "transport_error"
       else:
         try:
-          let payload = extractJsonObject(reply.text)
+          var payload = extractJsonObject(reply.text)
+          if engine.policies[seat].kind == pkExternal:
+            if payload["type"].getStr() != "decision" or
+                payload["turn"].getInt() != turnIndex:
+              raise newException(TandemError,
+                "external decision differs from the pending turn")
+            payload = payload["action"]
           let parsed = parseOrder(payload, engine.previous[seat],
             engine.hasPrevious[seat], sim.porterOrder(seat, turnIndex),
             turnIndex)
           if parsed.usable:
             resolved[seat] = parsed.order
+            if engine.policies[seat].kind == pkExternal:
+              resolved[seat].source = osExternal
+              engine.externalAccepted[seat] = true
             resolved[seat].latencyMs = latency
             settled[seat] = true
           else:
@@ -467,6 +482,7 @@ proc turn*(
     case resolved[seat].source
     of osLlm: inc sim.stats[seat].llmTurns
     of osFallback: inc sim.stats[seat].fallbackTurns
+    of osExternal: discard
     of osScripted: discard
     # The record is the ONE source: the server writes it to the replay AND
     # folds it back through `applyRecord`, which is what INSTALLS the order.

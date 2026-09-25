@@ -59,16 +59,7 @@ when isMainModule:
           for seat in Seat:
             let teacher = sim.baselineOrder(seat,
               if seat == Cobalt: "porter" else: "mule", turn)
-            let completion = %*{
-              "note": teacher.note,
-              "drive": [float(teacher.driveX) / 4096.0,
-                        float(teacher.driveY) / 4096.0],
-              "effort": float(teacher.effort) / 255.0,
-              "yield": float(teacher.yieldQ) / 255.0,
-              "twist": float(teacher.twist) / 255.0,
-              "brace": float(teacher.brace) / 255.0,
-              "say": teacher.say
-            }
+            let completion = orderReplyJson(teacher)
             let (parsed, usable) = parseOrder(completion,
               engine.previous[seat], engine.hasPrevious[seat], teacher, turn)
             doAssert usable

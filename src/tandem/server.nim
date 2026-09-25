@@ -61,6 +61,8 @@ type
     loadingReplayUri: string
     currentReplayUri: string
     chatMessages: Table[WebSocket, string]
+    externalReplies: Table[WebSocket, string]
+    pendingExternalTurn: int
     playerIndices: Table[WebSocket, int]
     playerAddresses: Table[WebSocket, string]
     playerSlots: Table[WebSocket, int]
@@ -112,6 +114,8 @@ var replayBytesForClients {.threadvar.}: string
 proc initAppState() =
   initLock(appState.lock)
   appState.chatMessages = initTable[WebSocket, string]()
+  appState.externalReplies = initTable[WebSocket, string]()
+  appState.pendingExternalTurn = -1
   appState.playerIndices = initTable[WebSocket, int]()
   appState.playerAddresses = initTable[WebSocket, string]()
   appState.playerSlots = initTable[WebSocket, int]()
@@ -312,6 +316,13 @@ proc websocketHandler(
   of MessageEvent:
     if message.kind == Ping:
       websocket.send(message.data, Pong)
+    elif message.kind == TextMessage:
+      {.gcsafe.}:
+        withLock appState.lock:
+          if appState.pendingExternalTurn >= 0 and
+              websocket in appState.playerIndices and
+              message.data.len <= 8192:
+            appState.externalReplies[websocket] = message.data
     elif message.kind == BinaryMessage:
       {.gcsafe.}:
         withLock appState.lock:
@@ -427,7 +438,11 @@ proc registrationOf*(
   let prompt = clipRunes(parsed.node{"prompt"}.getStr(), MaxPromptRunes)
   let scripted = parsed.node{"scripted"}
   let label = clipRunes(parsed.node{"policy"}.getStr(), MaxPolicyRunes)
-  if prompt.len > 0:
+  if parsed.node{"external"}.getBool(false):
+    policy.kind = pkExternal
+    policy.prompt = prompt
+    policy.baseline = ""
+  elif prompt.len > 0:
     policy.kind = pkLlm
     policy.prompt = prompt
     policy.baseline = ""
@@ -542,6 +557,61 @@ proc runServerLoop*(
   let client = if replayLoaded: nil else: newLlmClient(config)
   var engine = newTurnEngine(client,
     if client.isNil: nil else: curlyBatch(client))
+  let modelBatch = engine.batch
+  if not replayLoaded:
+    engine.batch = proc(calls: seq[BatchCall], timeoutSeconds: int):
+        seq[BatchReply] {.closure, gcsafe.} =
+      var modelCalls: seq[BatchCall]
+      var externalCalls: seq[BatchCall]
+      for call in calls:
+        if engine.policies[Seat(call.seat)].kind == pkExternal:
+          externalCalls.add(call)
+        else:
+          modelCalls.add(call)
+      let deadline = getMonoTime() + initDuration(seconds = timeoutSeconds)
+      if externalCalls.len > 0:
+        {.gcsafe.}:
+          withLock appState.lock:
+            appState.pendingExternalTurn = externalCalls[0].turn
+            appState.externalReplies.clear()
+        for call in externalCalls:
+          var socket: WebSocket
+          var found = false
+          {.gcsafe.}:
+            withLock appState.lock:
+              for candidate, index in appState.playerIndices.pairs:
+                if index >= 0 and index < sim.players.len and
+                    sim.players[index].seat == Seat(call.seat):
+                  socket = candidate
+                  found = true
+          if found:
+            socket.send($(%*{
+              "type": "turn", "turn": call.turn,
+              "system": call.system, "user": call.user,
+              "candidates": engine.candidates[Seat(call.seat)]
+            }), TextMessage)
+      if modelCalls.len > 0:
+        result = modelBatch(modelCalls, timeoutSeconds)
+      for call in externalCalls:
+        var reply = BatchReply(seat: call.seat, error: "timeout")
+        while getMonoTime() < deadline:
+          {.gcsafe.}:
+            withLock appState.lock:
+              for socket, index in appState.playerIndices.pairs:
+                if index >= 0 and index < sim.players.len and
+                    sim.players[index].seat == Seat(call.seat) and
+                    socket in appState.externalReplies:
+                  reply.ok = true
+                  reply.text = appState.externalReplies[socket]
+                  reply.error = ""
+                  appState.externalReplies.del(socket)
+          if reply.ok:
+            break
+          sleep(10)
+        result.add(reply)
+      {.gcsafe.}:
+        withLock appState.lock:
+          appState.pendingExternalTurn = -1
   for seat in Seat:
     engine.policies[seat] = SeatPolicy(
       kind: pkScripted, baseline: "porter", label: "porter")
@@ -579,6 +649,22 @@ proc runServerLoop*(
     ## on the normal exit AND from the host-error handler, which is what makes
     ## `fault/host_error` a real ending rather than a declared one: the note
     ## promises best-effort artifacts before re-raising.
+    if not replayLoaded:
+      let results = parseJson(sim.playerResultsJson())
+      var externalSockets: seq[WebSocket]
+      {.gcsafe.}:
+        withLock appState.lock:
+          for socket, index in appState.playerIndices.pairs:
+            if index >= 0 and index < sim.players.len and
+                engine.policies[sim.players[index].seat].kind == pkExternal:
+              externalSockets.add(socket)
+      for socket in externalSockets:
+        socket.send($(%*{
+          "type": "final", "scores": results["scores"],
+          "reason": results["reason"], "endRule": results["endRule"]
+        }), TextMessage)
+      if externalSockets.len > 0:
+        sleep(500)
     replayWriter.closeReplayWriter()
     if saveReplayPath.len > 0 and fileExists(saveReplayPath):
       echo "Replay written: ", saveReplayPath,
@@ -634,6 +720,7 @@ proc runServerLoop*(
             appState.playerTokens.del(websocket)
             appState.playerReady.del(websocket)
             appState.chatMessages.del(websocket)
+            appState.externalReplies.del(websocket)
             appState.globalViewers.del(websocket)
           appState.closedSockets.setLen(0)
 
@@ -751,13 +838,28 @@ proc runServerLoop*(
             let opening = not (sim.hasOrder[0] and sim.hasOrder[1])
             if opening or elapsedTicks mod sim.turnTicks() == 0:
               let seconds = int((getMonoTime() - episodeStart).inSeconds)
-              engine.turn(sim, elapsedTicks div sim.turnTicks(), seconds)
+              let turnIndex = elapsedTicks div sim.turnTicks()
+              for seat in Seat:
+                engine.candidates[seat] = %*[
+                  orderReplyJson(sim.porterOrder(seat, turnIndex)),
+                  orderReplyJson(sim.muleOrder(seat, turnIndex))]
+              engine.turn(sim, turnIndex, seconds)
               # The records are the ONE source: writing them into the replay
               # AND folding them back through `applyRecord` is what installs
               # each seat's quantised order into hashed state, so the live sim
               # and the viewer compile bit-identical forces.
               for record in engine.records:
                 recordAndWrite(record)
+              for seat in Seat:
+                if engine.policies[seat].kind == pkExternal:
+                  for i in 0 ..< sockets.len:
+                    if playerIndices[i] >= 0 and
+                        playerIndices[i] < sim.players.len and
+                        sim.players[playerIndices[i]].seat == seat:
+                      sockets[i].send($(%*{
+                        "type": "decision_result", "turn": turnIndex,
+                        "accepted": engine.externalAccepted[seat]
+                      }), TextMessage)
           # EDIT 1: the seats send no inputs; the control layer compiles both
           # force vectors from the recorded orders. The mask frame is still
           # written so ctf's plumbing is untouched, and never changes.

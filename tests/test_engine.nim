@@ -69,6 +69,28 @@ proc bothSeatsInOneBatch() =
   doAssert sim.activeOrder[0].source == osLlm
   report "both seats' calls go out as ONE parallel batch"
 
+proc externalOrderUsesTheReplayRecord() =
+  var sim = carryingSim(testConfig())
+  let batch = proc(calls: seq[BatchCall], timeoutSeconds: int):
+      seq[BatchReply] {.closure, gcsafe.} =
+    discard timeoutSeconds
+    for call in calls:
+      result.add BatchReply(seat: call.seat, ok: true, text: $(%*{
+        "type": "decision", "turn": call.turn,
+        "action": {"drive": [1, 0], "effort": 0.5,
+                   "yield": 0.2, "twist": 0, "brace": 0.1}
+      }))
+  let engine = newTurnEngine(nil, batch)
+  for seat in Seat:
+    engine.policies[seat] = SeatPolicy(
+      kind: pkExternal, connected: true, label: "external")
+  engine.turn(sim, 0, 0)
+  doAssert engine.externalAccepted == [true, true]
+  engine.applyRecords(sim)
+  for seat in Seat:
+    doAssert sim.activeOrder[ord(seat)].source == osExternal
+  report "external decisions install quantized orders through replay records"
+
 proc interBatchFloor() =
   windows.setLen(0)
   callLog.setLen(0)
@@ -295,6 +317,7 @@ proc noShowIsDeclared() =
 
 when isMainModule:
   bothSeatsInOneBatch()
+  externalOrderUsesTheReplayRecord()
   interBatchFloor()
   retryThenFallback()
   perTurnBudget()
