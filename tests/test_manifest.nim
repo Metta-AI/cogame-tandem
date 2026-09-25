@@ -102,8 +102,8 @@ proc configSchemaCoversEveryReadField() =
               "lobbyJoinTimeoutTicks", "gameOverTicks", "maxTicks", "maxGames",
               "turnTicks", "turnBudgetMs", "attempt1Ms", "retryMs",
               "minBatchSpacingMs", "wallClockBudgetSeconds", "regripTicks",
-              "fastMode", "showPlayerLabels", "closedRoster", "model",
-              "maxOutputTokens", "maxSeatForceMilliNewtons",
+              "fastMode", "showPlayerLabels", "closedRoster",
+              "maxSeatForceMilliNewtons",
               "gripLimitMilliNewtons", "damageCap", "slots", "players",
               "tokens"]:
     doAssert key in declared, "config_schema does not declare " & key
@@ -145,10 +145,8 @@ proc uploadContract() =
   doAssert runnable["type"].getStr() == "game"
   doAssert runnable["image"].getStr() == "{{TANDEM_IMAGE}}"
   doAssert runnable["run"][0].getStr() == "/bin/tandem"
-  doAssert runnable["env"]["ANTHROPIC_API_KEY_URI"].getStr() ==
-    "secret://coworld/tandem/anthropic_api_key",
-    "the game runnable does not receive the anthropic secret; every league " &
-      "episode would play scripted"
+  doAssert not runnable["env"].hasKey("ANTHROPIC_API_KEY_URI"),
+    "the game must not receive an inference credential"
   doAssert runnable["source_url"].getStr().startsWith("https://github.com/")
   doAssert m["game"]["replay_viewer"]["bundle"].getStr() ==
     "static-replay-viewer"
@@ -174,9 +172,10 @@ proc policiesAreTheCanonicalSet() =
   var scripted: seq[string] = @[]
   var champion2 = false
   for entry in policies:
-    doAssert entry["run"].getStr() == "/bin/tandem-player"
     doAssert entry["name"].getStr().startsWith("tandem-")
     if entry["env"].hasKey("PLAYER_PROMPT"):
+      doAssert entry["image"].getStr() == "coworld-tandem-ordinary:latest"
+      doAssert entry["run"].getStr() == "python player.py"
       inc prompts
       doAssert entry["env"]["PLAYER_PROMPT"].getStr().len > 200,
         entry["name"].getStr() & " has a thin prompt"
@@ -185,6 +184,7 @@ proc policiesAreTheCanonicalSet() =
         doAssert entry["player"].getStr() ==
           "ply_bac48eb1-662e-44f8-973d-f3e016dccf5d"
     else:
+      doAssert entry["run"].getStr() == "/bin/tandem-player"
       scripted.add(entry["env"]["PLAYER_SCRIPTED"].getStr())
   doAssert prompts == 2, "both champions must be PLAYER_PROMPT policies"
   doAssert champion2, "champion #2 must carry the daveey-1 player id"

@@ -35,8 +35,6 @@ proc defaultGameConfig*(): GameConfig =
     fastMode: true,
     showPlayerLabels: false,
     closedRoster: false,
-    model: DefaultModel,
-    maxOutputTokens: DefaultMaxOutputTokens,
     maxSeatForceMilliNewtons: int(MaxSeatForce),
     gripLimitMilliNewtons: int(GripLimitBase),
     damageCap: int(DamageCapPoints),
@@ -50,10 +48,6 @@ proc readInt(node: JsonNode, key: string, target: var int) =
 proc readBool(node: JsonNode, key: string, target: var bool) =
   if node.hasKey(key) and node[key].kind == JBool:
     target = node[key].getBool()
-
-proc readStr(node: JsonNode, key: string, target: var string) =
-  if node.hasKey(key) and node[key].kind == JString:
-    target = node[key].getStr()
 
 proc readSlots(node: JsonNode, config: var GameConfig) =
   ## `slots` names each seat's alias; `players` names the policies; `tokens`
@@ -150,8 +144,6 @@ proc update*(config: var GameConfig, configJson: string) =
   node.readBool("fastMode", config.fastMode)
   node.readBool("showPlayerLabels", config.showPlayerLabels)
   node.readBool("closedRoster", config.closedRoster)
-  node.readStr("model", config.model)
-  node.readInt("maxOutputTokens", config.maxOutputTokens)
   node.readInt("maxSeatForceMilliNewtons", config.maxSeatForceMilliNewtons)
   node.readInt("gripLimitMilliNewtons", config.gripLimitMilliNewtons)
   node.readInt("damageCap", config.damageCap)
@@ -243,8 +235,6 @@ proc configJson*(config: GameConfig, course: Course): string =
     "fastMode": config.fastMode,
     "showPlayerLabels": config.showPlayerLabels,
     "closedRoster": config.closedRoster,
-    "model": config.model,
-    "maxOutputTokens": config.maxOutputTokens,
     "maxSeatForceMilliNewtons": config.maxSeatForceMilliNewtons,
     "gripLimitMilliNewtons": config.gripLimitMilliNewtons,
     "damageCap": config.damageCap,

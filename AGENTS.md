@@ -19,14 +19,15 @@ about the partner is the force felt through your own handle.
 
 ```
 src/tandem.nim            entrypoint (/bin/tandem)
-src/tandem_player.nim     the player container (/bin/tandem-player): a registrar
+src/tandem_player.nim     the bundled scripted player (/bin/tandem-player)
+players/ordinary/       ordinary prompt, Jev, heuristic and trained player
 src/tandem/
   sim.nim sim_types.nim sim_state.nim sim_config.nim course.nim control.nim
                           THE DETERMINISM BOUNDARY (see below)
   trig.nim                the committed SinQ12 table, isqrt, integer atan2
   orders.nim              the six-field order, its tolerant parser, its record
   baselines.nim           porter / mule, and their {.intdefine.} tuning knobs
-  llm.nim decide.nim      the credential ladder and the one-batch-per-turn loop
+  decide.nim              private view and bounded simultaneous turn loop
   server.nim              ctf's mummy server with the five named edits
   replays.nim replay_runtime.nim broadcast.nim events.nim roster.nim
   global.nim rig_art.nim labels.nim wire_constants.nim   (render side; floats ok)
@@ -83,7 +84,7 @@ the starter.
 - **No channel.** A seat's observation contains nothing derived from the
   partner's order, note, `say`, effort, yield, twist, brace or felt strain —
   only the shared body's state and the map. `tests/test_no_channel.nim` asserts
-  it against the composed LLM user message over 200 randomised order pairs. Do
+  it against the private view over 200 randomised order pairs. Do
   not add a field to `seatViewJson` without checking it against that test.
 - **Two name spaces.** In-game vocabulary is `Cobalt`/`Rust` only. Real policy
   names appear in the replay config roster, the chrome and `results.names`, and

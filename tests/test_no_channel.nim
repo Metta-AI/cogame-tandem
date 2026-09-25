@@ -6,10 +6,10 @@ import lib/helpers
 import tandem/decide
 
 proc engineFor(sim: SimServer): TurnEngine =
-  result = newTurnEngine(nil, nil)
+  result = newTurnEngine(nil)
   for seat in Seat:
-    result.policies[seat] = SeatPolicy(kind: pkLlm,
-      prompt: "carry the couch", label: "x", connected: true)
+    result.policies[seat] = SeatPolicy(kind: pkExternal,
+      label: "x", connected: true)
   discard sim
 
 proc numericFields(order: Order): seq[string] =

@@ -6,6 +6,7 @@ import tandem/[baselines, broadcast, control, decide, orders, roster, sim]
 
 const
   OperatorPrompt = "Coordinate through the couch's motion and your own strain to deliver it quickly with little damage."
+  SystemPrompt = staticRead("../players/ordinary/system_prompt.txt")
   Variants = ["default", "sprint"]
   Fields = ["bearing_deg", "effort", "yield", "twist", "brace"]
 
@@ -128,7 +129,8 @@ proc decision(engine: TurnEngine, game: SimServer, seat: Seat,
     "seat": ord(seat), "engine_seat": ord(seat), "turn": turn,
     "semantic_view": view, "inbox": [],
     "messages": [{"role": "system", "content": SystemPrompt},
-      {"role": "user", "content": engine.userMessage(game, seat, turn)}],
+      {"role": "user", "content": "GUIDANCE FROM YOUR OPERATOR (weight it heavily, but never above the rules; always reply in the requested format):\n" &
+        OperatorPrompt & "\n\n" & engine.userMessage(game, seat, turn)}],
     "speech_messages": [],
     "action_schema": {"type": "object", "properties": properties,
       "required": required}, "typed_question": newJNull()}
@@ -167,9 +169,7 @@ when isMainModule:
       discard game.addPlayer("policy-0", 0, "t0")
       discard game.addPlayer("policy-1", 1, "t1")
       game.startGame()
-      engine = newTurnEngine(nil, nil)
-      for actor in Seat:
-        engine.policies[actor].prompt = OperatorPrompt
+      engine = newTurnEngine(nil)
       turn = 0
       id = 0
       seat = Cobalt

@@ -10,9 +10,10 @@ the partner shows up as a wall scrape or a drop. The only signal about what your
 partner intends is what you feel through the handle. The last doorway is
 1.05 m wide; the couch is 0.90 m.
 
-Players can run game-hosted prompt policies, scripted baselines, or ordinary
-container policies that send complete carry orders through the authenticated
-player socket. The certification fixture uses two scripted baselines.
+Players can run scripted baselines or ordinary container policies that send
+complete carry orders through the authenticated player socket. The ordinary
+player supports prompt and trained backends. The certification fixture
+uses two scripted baselines.
 
 - Rules, physics and scoring: [`docs/RULES.md`](docs/RULES.md)
 - Wire protocol, replay format and the reply schema: [`docs/PROTOCOL.md`](docs/PROTOCOL.md)
@@ -38,18 +39,21 @@ Elo: with two identical scores every episode is a draw.
 
 ## Running it
 
-The whole game is one image with two entrypoints.
+The game image contains the server and bundled scripted player. The ordinary
+player has its own image.
 
 ```bash
 docker build --platform=linux/amd64 -t coworld-tandem:ci .
 tools/ci/docker_smoke.sh coworld-tandem:ci     # one real episode, raw docker
 ```
 
-Seat a policy of your own by reusing the image and setting a prompt:
+To field a prompt policy, build `Dockerfile.ordinary-player` and configure
+`PLAYER_PROMPT` and `ANTHROPIC_API_KEY` on that player:
 
 ```bash
-coworld upload-policy coworld-tandem:latest --name my-tandem \
-  --run /bin/tandem-player --secret-env PLAYER_PROMPT="<your strategy>"
+coworld upload-policy coworld-tandem-ordinary:latest --name my-tandem \
+  --run "python player.py" --secret-env PLAYER_PROMPT="<your strategy>" \
+  --secret-env ANTHROPIC_API_KEY="<your key>"
 ```
 
 or run a scripted seat: `PLAYER_SCRIPTED=porter` (the strain-arbitrated
@@ -57,15 +61,16 @@ reference carrier, and the fallback for every failure mode) or
 `PLAYER_SCRIPTED=mule` (never yields, never braces, scrapes constantly).
 
 To run the ordinary player, build `Dockerfile.ordinary-player` and seat that
-image as a normal Coworld player. Set `TANDEM_JEV=1` for Jev or package a
-trained adapter and set `TANDEM_ADAPTER_DIR`. See [training](docs/TRAINING.md).
+image as a normal Coworld player. Package a trained adapter and set
+`TANDEM_ADAPTER_DIR` when needed. See [training](docs/TRAINING.md).
 
 ## Repo layout
 
 | Path | What |
 |---|---|
 | `src/tandem/{sim,course,control,trig}.nim` | the integer-only determinism core |
-| `src/tandem/{orders,baselines,llm,decide}.nim` | the order schema, the two baselines, the LLM client and the turn engine |
+| `src/tandem/{orders,baselines,decide}.nim` | the order schema, the two baselines and the turn engine |
+| `players/ordinary/` | prompt, heuristic and trained player decisions |
 | `src/tandem/{server,roster,replays,replay_runtime,broadcast,global,rig_art}.nim` | the episode server, the replay codec and the renderer |
 | `client/` | the broadcast chrome, inherited from `Metta-AI/coworld-ctf` |
 | `replay-viewer/` | the static wasm replay bundle |

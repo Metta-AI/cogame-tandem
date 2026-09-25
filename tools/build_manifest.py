@@ -32,21 +32,20 @@ ws://<host>:<port>/player?slot=N&token=T (0 = Cobalt, the fore handle;
 1 = Rust, the aft handle) and immediately sends ONE Sprite v1 chat message
 carrying its registration:
 
-  {"type":"register","prompt":"<strategy text or empty>",
-   "scripted":"porter"|"mule"|null,"policy":"<free label>",
-   "external":true|false}
+  {"type":"register","scripted":"porter"|"mule"|null,
+   "policy":"<free label>"}
 
-A seat with a non-empty `prompt` is an LLM seat; otherwise it is the named
-scripted baseline, defaulting to `porter`. Registration is re-sent once after
+A bundled player with `scripted` set plays that baseline. A player with no
+scripted baseline submits ordinary actions. Registration is re-sent once after
 the first received frame, in case the first send raced slot registration. The
-server consumes it, records a REDACTED `register` replay record (policy label
-and kind, never the prompt) and drops any other chat text.
+server records a `register` replay record with policy label and kind, and
+drops any other chat text. Strategy prompts remain inside player containers.
 
-An `external:true` player is an ordinary policy on the same authenticated
-socket. Every turn it receives a private JSON text frame with `type:turn`,
-`turn`, `system`, `user`, and two complete `candidates` (porter and mule). It
-replies with `{"type":"decision","turn":N,"action":{...}}`. The game parses,
-quantizes, and records that action through the same replay path as an LLM
+An ordinary policy uses the same authenticated socket. Every turn it receives
+a private JSON text frame with `type:turn`, `turn`, and `view`. It constructs
+its own prompt and action, then replies with
+`{"type":"decision","turn":N,"action":{...}}`. The game parses,
+quantizes, and records that action through the same replay path as every
 reply, then sends `{"type":"decision_result","turn":N,"accepted":true|false}`.
 The final text frame carries the shared scores and end reason. The binary
 Sprite frames and Ready packet remain unchanged, and no seat receives the
@@ -56,8 +55,8 @@ After registration every seat receives one binary Sprite v1 frame per tick and
 answers each with the Ready packet (0x85). The server computes both force
 vectors from the recorded orders; Sprite input masks are ignored.
 
-Every 48 ticks (2.0 s of sim time) the GAME SERVER asks both seats' LLMs, in ONE
-parallel batch, for a single JSON object:
+Every 48 ticks (2.0 s of sim time) the game requests both seats' actions
+before waiting for either response. An action is one JSON object:
 
   {"note":"<=160 chars","drive":[x,y],"effort":0..1,"yield":0..1,
    "twist":-1..1,"brace":0..1,"say":"<=48 chars"}
@@ -129,7 +128,7 @@ CONFIG_SCHEMA = {
         "attempt1Ms": {"type": "integer", "minimum": 1, "default": 4500},
         "retryMs": {"type": "integer", "minimum": 1, "default": 2000},
         "minBatchSpacingMs": {"type": "integer", "minimum": 0, "default": 4500,
-                              "description": "Inter-batch wall floor; the Bedrock sidecar caps 30 requests a minute per episode."},
+                              "description": "Inter-turn wall floor for ordinary player decisions."},
         "wallClockBudgetSeconds": {"type": "integer", "minimum": 1,
                                    "maximum": 720, "default": 660},
         "lobbyJoinTimeoutTicks": {"type": "integer", "minimum": 0,
@@ -140,8 +139,6 @@ CONFIG_SCHEMA = {
         "fastMode": {"type": "boolean", "default": True},
         "showPlayerLabels": {"type": "boolean", "default": False},
         "speed": {"type": "integer", "minimum": 1, "default": 1},
-        "model": {"type": "string", "default": "claude-haiku-4-5-20251001"},
-        "maxOutputTokens": {"type": "integer", "minimum": 1, "default": 900},
         "maxSeatForceMilliNewtons": {"type": "integer", "minimum": 1,
                                      "default": 600000},
         "gripLimitMilliNewtons": {"type": "integer", "minimum": 1,
@@ -234,16 +231,13 @@ manifest = {
                         "gripped to opposite handles and must carry it through "
                         "a procedurally generated warehouse. The couch obeys "
                         "the SUM of their forces, so coordination happens "
-                        "through the physics itself. A policy is just a "
-                        "prompt."),
+                        "through the physics itself. Each player chooses a "
+                        "carry order from its private view."),
         "runnable": {
             "type": "game",
             "image": IMAGE,
             "run": ["/bin/tandem"],
-            "env": {
-                "ANTHROPIC_API_KEY_URI":
-                    "secret://coworld/tandem/anthropic_api_key"
-            },
+            "env": {},
             "source_url": SOURCE,
         },
         "replay_viewer": {"bundle": "static-replay-viewer"},

@@ -24,32 +24,28 @@ are written, then the process exits.
 
 ## The player container
 
-`/bin/tandem-player` reads `COWORLD_PLAYER_WS_URL`, `PLAYER_PROMPT`,
-`PLAYER_SCRIPTED` and `PLAYER_POLICY_LABEL`, connects, and sends **one Sprite v1
+`/bin/tandem-player` reads `COWORLD_PLAYER_WS_URL`, `PLAYER_SCRIPTED` and
+`PLAYER_POLICY_LABEL`, connects, and sends **one Sprite v1
 chat message** carrying its registration:
 
 ```json
-{"type":"register","prompt":"<strategy text or empty>",
- "scripted":"porter"|"mule"|null,"policy":"<free label>",
- "external":true|false}
+{"type":"register","scripted":"porter"|"mule"|null,
+ "policy":"<free label>"}
 ```
 
-`prompt` is truncated to 4000 runes **by the sender**, before the frame is
-built: the Sprite v1 chat header carries a u16 length, so a registration over
-65 535 bytes would wrap it and be discarded by the server — a rejected
-registration, which the rules forbid (over-long is truncated, never rejected).
-The server truncates again on receipt.
+Strategy prompts stay inside ordinary player containers. Policy labels are
+truncated on rune boundaries before they enter Sprite's u16-length chat frame.
 
 The bundled `/bin/tandem-player` sends the Sprite v1 Ready packet (`0x85`)
 after each received frame and otherwise only receives. It re-sends registration
 after the first received frame, in case the first send raced slot registration.
 The receive loop is
 wrapped in `try/except CatchableError` and exits 0 on a dead socket. A seat that
-never registers, or registers with neither field, is `scripted: "porter"`.
+never registers plays the game's `porter` fallback.
 
-An `external:true` policy receives private text frames on the same authenticated
-player socket. Each `turn` frame has the turn index, the exact system and user
-prompts, and complete porter and mule candidate orders. The player replies
+An ordinary policy receives private text frames on the same authenticated
+player socket. Each `turn` frame has the turn index and private `view`. The
+player constructs its own prompt and complete carry order, then replies
 with `{"type":"decision","turn":N,"action":{...}}`. The game sends a
 `decision_result` acceptance receipt after the action enters the replay and
 ends with a `final` frame containing scores, reason, and end rule. The normal
@@ -63,7 +59,7 @@ cogs — there is no fog of war. **Hidden:** the partner's order, note, `say`,
 effort, yield, twist, brace and felt strain; the partner's `PLAYER_PROMPT`;
 real player names (board labels carry only `Cobalt`/`Rust`); and future ticks.
 
-## The per-seat view given to the LLM
+## The per-seat view given to the player
 
 Numbers rounded to 2 decimals, in view coordinates (metres, centred, y up) and
 degrees.

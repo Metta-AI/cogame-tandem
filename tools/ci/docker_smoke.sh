@@ -38,9 +38,8 @@
 #                              job loads it in a real browser -- that is the
 #                              only replay in CI that is known to be readable
 #                              by this game's own viewer.
-#   ANTHROPIC_API_KEY          if set, forwarded to the game so the LLM path
-#                              is exercised; if unset the game must fall back
-#                              to its scripted baselines and still complete
+#   SMOKE_ORDINARY_IMAGE       if set, use this image for seat 0's ordinary
+#                              heuristic player; other seats stay scripted
 set -euo pipefail
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -90,13 +89,13 @@ test -f "${manifest}" || { echo "manifest not found: ${manifest}" >&2; exit 1; }
 # --------------------------------------------------------------------------
 # Episode config + per-seat launch args, derived from the cert fixture.
 # --------------------------------------------------------------------------
-python3 - "${manifest}" "${work_dir}" "${player_bin}" "${seats_expected}" <<'PY'
+python3 - "${manifest}" "${work_dir}" "${player_bin}" "${seats_expected}" "${image}" <<'PY'
 import json
 import os
 import shlex
 import sys
 
-manifest_path, work, player_bin, seats_expected = sys.argv[1:5]
+manifest_path, work, player_bin, seats_expected, game_image = sys.argv[1:6]
 manifest = json.load(open(manifest_path))
 game = manifest.get("game") or {}
 cert = manifest.get("certification") or {}
@@ -170,11 +169,20 @@ for slot in range(seats):
         env_args += ["-e", f"{key}={value}"]
     for kv in extra_env:
         env_args += ["-e", kv]
-    argv = list(entry.get("run") or [player_bin])
+    ordinary_image = os.environ.get("SMOKE_ORDINARY_IMAGE", "")
+    if slot == 0 and ordinary_image:
+        argv = ["python", "player.py"]
+        env_args = []
+        image = ordinary_image
+    else:
+        argv = list(entry.get("run") or [player_bin])
+        image = game_image
     with open(os.path.join(work, f"env-{slot}.args"), "w") as fh:
         fh.write(" ".join(shlex.quote(a) for a in env_args))
     with open(os.path.join(work, f"cmd-{slot}.args"), "w") as fh:
         fh.write(" ".join(shlex.quote(a) for a in argv))
+    with open(os.path.join(work, f"image-{slot}"), "w") as fh:
+        fh.write(image)
     print(f"slot {slot}: player_id={player_id or '(default)'} run={argv} env={len(env_args) // 2}")
 
 with open(os.path.join(work, "seats"), "w") as fh:
@@ -190,14 +198,6 @@ chmod 777 "${work_dir}"
 # --------------------------------------------------------------------------
 docker network create "${network}" >/dev/null
 
-game_env=()
-if [ -n "${ANTHROPIC_API_KEY:-}" ]; then
-  game_env+=(-e "ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}")
-  echo "ANTHROPIC_API_KEY present: the LLM path will be exercised"
-else
-  echo "no ANTHROPIC_API_KEY: the game must complete on its scripted baselines"
-fi
-
 echo "starting game container (${image} ${game_bin}) ..."
 docker run -d --name "${prefix}-game" \
   --network "${network}" --network-alias "${prefix}-game" \
@@ -207,17 +207,17 @@ docker run -d --name "${prefix}-game" \
   -e COGAME_RESULTS_URI=file:///coworld/results.json \
   -e COGAME_SAVE_REPLAY_URI=file:///coworld/replay.json \
   -e COGAME_PLAYER_FAILURE_URI=file:///coworld/player_failure.json \
-  ${game_env[@]+"${game_env[@]}"} \
   -v "${work_dir}:/coworld:rw" \
   "${image}" "${game_bin}" >/dev/null
 
 for ((slot = 0; slot < seats; slot++)); do
   eval "penv=( $(cat "${work_dir}/env-${slot}.args") )"
   eval "pcmd=( $(cat "${work_dir}/cmd-${slot}.args") )"
+  player_image="$(cat "${work_dir}/image-${slot}")"
   docker run -d --name "${prefix}-p${slot}" --network "${network}" \
     -e COWORLD_PLAYER_WS_URL="ws://${prefix}-game:${port}/player?slot=${slot}&token=token-${slot}" \
     ${penv[@]+"${penv[@]}"} \
-    "${image}" ${pcmd[@]+"${pcmd[@]}"} >/dev/null
+    "${player_image}" ${pcmd[@]+"${pcmd[@]}"} >/dev/null
 done
 
 # --------------------------------------------------------------------------
