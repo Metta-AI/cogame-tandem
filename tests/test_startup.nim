@@ -81,7 +81,10 @@ proc bothEntrypointsAreBuilt() =
   doAssert "COPY --from=build /workspace/tandem/data ./data" in dockerfile,
     "the runtime stage does not carry data/ (the cog rigs live there)"
   doAssert "COPY --from=build /workspace/tandem/client ./client" in dockerfile
-  report "one image, two entrypoints, and the art travels with them"
+  let ordinary = repoFile("Dockerfile.ordinary-player")
+  doAssert "COPY players/ordinary/*.py ." in ordinary
+  doAssert "COPY players/ordinary/system_prompt.txt ." in ordinary
+  report "game and ordinary player images carry their own runtime files"
 
 proc playerSelectsItsPolicyByEnv() =
   let source = repoFile("src/tandem_player.nim")
@@ -92,7 +95,8 @@ proc playerSelectsItsPolicyByEnv() =
     "a seat with neither env var must default to porter"
   doAssert "except CatchableError" in source,
     "the receive loop is not wrapped; whisky RAISES on a close frame"
-  report "one image, env-switched: PLAYER_PROMPT vs PLAYER_SCRIPTED"
+  doAssert "PLAYER_PROMPT requires the ordinary player image" in source
+  report "the bundled player accepts scripted baselines only"
 
 when isMainModule:
   badConfigIsACleanError()

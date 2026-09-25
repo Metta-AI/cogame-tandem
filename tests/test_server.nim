@@ -9,85 +9,64 @@ import tandem_player
 proc registrationBecomesARedactedRecord() =
   let previous = SeatPolicy()
   let reg = registrationOf($ %*{
-    "type": "register", "prompt": "carry it gently and brace in the door",
+    "type": "register",
     "scripted": newJNull(), "policy": "tandem-anchor"}, Cobalt, previous)
   doAssert reg.ok, "a registration object was not recognised"
-  doAssert reg.policy.kind == pkLlm
-  doAssert reg.policy.prompt.len > 0
+  doAssert reg.policy.kind == pkExternal
   doAssert reg.record.len > 0, "no register record was produced"
-  doAssert "carry it gently" notin reg.record,
-    "THE PROMPT LEAKED INTO THE REPLAY RECORD"
   let node = parseJson(reg.record)
   doAssert node["k"].getStr() == "register"
   doAssert node["policy"].getStr() == "tandem-anchor"
-  doAssert node["kind"].getStr() == "llm"
+  doAssert node["kind"].getStr() == "external"
   doAssert not node.hasKey("prompt")
-  report "registration is consumed and recorded REDACTED"
+  report "registration records policy metadata without strategy prompts"
 
 proc externalRegistrationUsesTheSamePlayerSocket() =
   let reg = registrationOf($ %*{
-    "type": "register", "prompt": "private operator guidance",
-    "scripted": newJNull(), "external": true,
+    "type": "register", "scripted": newJNull(),
     "policy": "tandem-jev"}, Cobalt, SeatPolicy())
   doAssert reg.ok and reg.policy.kind == pkExternal
-  doAssert reg.policy.prompt == "private operator guidance"
   doAssert parseJson(reg.record)["kind"].getStr() == "external"
-  doAssert "private operator guidance" notin reg.record
-  report "external policy registers through the player socket without leaking guidance"
+  report "ordinary policy registers through the player socket"
 
 proc unchangedResendEarnsNoRecord() =
   let first = registrationOf($ %*{
-    "type": "register", "prompt": "", "scripted": %"mule",
+    "type": "register", "scripted": %"mule",
     "policy": "tandem-mule"}, Rust, SeatPolicy())
   doAssert first.ok and first.policy.baseline == "mule"
   let again = registrationOf($ %*{
-    "type": "register", "prompt": "", "scripted": %"mule",
+    "type": "register", "scripted": %"mule",
     "policy": "tandem-mule"}, Rust, first.policy)
   doAssert again.ok
   doAssert again.record.len == 0,
     "an unchanged re-send earned a second register record"
   report "an unchanged re-send earns no second record"
 
-proc longPromptIsTruncatedNotRejected() =
-  let prompt = repeat("carry ", 2000)
+proc longPolicyLabelIsTruncated() =
   let reg = registrationOf($ %*{
-    "type": "register", "prompt": prompt, "scripted": newJNull(),
+    "type": "register", "scripted": newJNull(),
     "policy": repeat("n", 300)}, Cobalt, SeatPolicy())
-  doAssert reg.ok, "a long prompt was REJECTED instead of truncated"
-  doAssert reg.policy.prompt.runeLen <= MaxPromptRunes,
-    "the prompt is " & $reg.policy.prompt.runeLen & " runes"
+  doAssert reg.ok
   doAssert reg.policy.label.runeLen <= MaxPolicyRunes
-  report "an over-long prompt is truncated, never rejected"
+  report "an over-long policy label is truncated on rune boundaries"
 
-proc oversizePacketIsTruncatedNotDropped() =
-  ## THROUGH THE REAL FRAMING, not beside it. The Sprite v1 chat frame carries
-  ## a u16 length, so a registration over 65 535 bytes used to wrap it, be
-  ## discarded by `readSpriteChatRaw`, and silently turn a champion seat into a
-  ## porter. The note's rule is truncate, never reject.
-  let prompt = repeat("carry-the-couch.", 20_000)   ## 320 000 bytes.
-  doAssert prompt.len > 65_535
-  let packet = chatPacket(registrationPayload(prompt, "", "tandem-anchor"))
+proc registrationPacketCarriesNoPrompt() =
+  let packet = chatPacket(registrationPayload("porter", "tandem-anchor"))
   doAssert packet.len < 65_535 + 3,
-    "the registration frame is " & $packet.len & " bytes; the u16 length " &
-      "field cannot carry it"
+    "the registration frame exceeds Sprite v1's u16 length"
   let text = readSpriteChatRaw(packet)
-  doAssert text.len > 0, "THE OVERSIZE REGISTRATION FRAME WAS DROPPED"
+  doAssert text.len > 0
+  doAssert not parseJson(text).hasKey("prompt")
   let reg = registrationOf(text, Cobalt, SeatPolicy())
-  doAssert reg.ok, "the oversize registration was not recognised"
-  doAssert reg.policy.kind == pkLlm,
-    "an oversize prompt made the seat " & $reg.policy.kind
-  doAssert reg.policy.prompt.runeLen == MaxPromptRunes,
-    "the prompt survived as " & $reg.policy.prompt.runeLen & " runes"
+  doAssert reg.ok and reg.policy.kind == pkScripted
   doAssert reg.policy.label == "tandem-anchor"
-  # A multi-byte prompt is cut on a rune boundary, not mid-codepoint.
-  let wide = repeat("\u{1F6CB}", 20_000)
-  let wideText = readSpriteChatRaw(
-    chatPacket(registrationPayload(wide, "", "wide")))
+  let wideText = readSpriteChatRaw(chatPacket(
+    registrationPayload("mule", repeat("\u{1F6CB}", 200))))
   doAssert wideText.len > 0 and isValidUtf8(wideText)
   let wideReg = registrationOf(wideText, Rust, SeatPolicy())
-  doAssert wideReg.ok and wideReg.policy.prompt.runeLen == MaxPromptRunes
-  doAssert isValidUtf8(wideReg.policy.prompt)
-  report "an oversize registration frame is truncated, never dropped"
+  doAssert wideReg.ok and wideReg.policy.label.runeLen == MaxPolicyRunes
+  doAssert isValidUtf8(wideReg.policy.label)
+  report "Sprite registration carries no prompt and keeps UTF-8 labels"
 
 proc nonRegistrationChatIsDropped() =
   for text in ["hello there", "{\"k\":\"order\"}", "", "{"]:
@@ -96,15 +75,13 @@ proc nonRegistrationChatIsDropped() =
     doAssert reg.record.len == 0
   report "any other chat text from a seat is dropped"
 
-proc seatWithNeitherFieldIsPorter() =
+proc seatWithNeitherFieldIsExternal() =
   let reg = registrationOf($ %*{
-    "type": "register", "prompt": "", "scripted": newJNull(),
+    "type": "register", "scripted": newJNull(),
     "policy": ""}, Rust, SeatPolicy())
   doAssert reg.ok
-  doAssert reg.policy.kind == pkScripted
-  doAssert reg.policy.baseline == "porter",
-    "a seat with neither field defaulted to " & reg.policy.baseline
-  report "a seat that registers neither field plays porter"
+  doAssert reg.policy.kind == pkExternal
+  report "a registered player without a scripted baseline submits actions"
 
 proc joinGate() =
   var config = testConfig()
@@ -137,9 +114,9 @@ proc twoNameSpaces() =
   var config = testConfig()
   config.showPlayerLabels = true
   var sim = carryingSim(config)
-  let engine = newTurnEngine(nil, nil)
+  let engine = newTurnEngine(nil)
   for seat in Seat:
-    engine.policies[seat] = SeatPolicy(kind: pkLlm, prompt: "go", label: "x")
+    engine.policies[seat] = SeatPolicy(kind: pkExternal, label: "x")
   for seat in Seat:
     let message = engine.userMessage(sim, seat, 3)
     for player in sim.players:
@@ -163,10 +140,10 @@ when isMainModule:
   registrationBecomesARedactedRecord()
   externalRegistrationUsesTheSamePlayerSocket()
   unchangedResendEarnsNoRecord()
-  longPromptIsTruncatedNotRejected()
-  oversizePacketIsTruncatedNotDropped()
+  longPolicyLabelIsTruncated()
+  registrationPacketCarriesNoPrompt()
   nonRegistrationChatIsDropped()
-  seatWithNeitherFieldIsPorter()
+  seatWithNeitherFieldIsExternal()
   joinGate()
   artifactsGoToFileUris()
   twoNameSpaces()

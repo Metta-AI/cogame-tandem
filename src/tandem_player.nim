@@ -1,18 +1,8 @@
-## Tandem player: a policy is just a prompt.
+## Tandem's bundled scripted player. Prompt, Jev, and trained policies use
+## players/ordinary/player.py and submit their orders on the player socket.
 ##
-## Connects to the game, delivers its registration in ONE Sprite v1 chat
-## message, then idles until the socket closes. Every decision happens inside
-## the game server, which sends this seat's prompt to Claude once every two
-## seconds of sim time; a deterministic control layer turns the reply into a
-## per-tick force vector at this cog's handle.
-##
-##   PLAYER_PROMPT=<strategy text>     -> an LLM seat
 ##   PLAYER_SCRIPTED=porter|mule       -> a scripted seat
 ##   (neither)                         -> PLAYER_SCRIPTED=porter
-##
-## To field your own policy, reuse this image and set PLAYER_PROMPT:
-##   coworld upload-policy <tandem-image> --name my-tandem \
-##     --run /bin/tandem-player --secret-env PLAYER_PROMPT="<your strategy>"
 
 import
   std/[json, monotimes, net, options, os, strutils, times, unicode],
@@ -21,14 +11,7 @@ import
 const
   SpriteClientChat = 0x81'u8
   SpriteClientReady = 0x85'u8
-  PromptRuneCap* = 4000
-    ## THE CAP IS HERE, at the transport, because the Sprite v1 chat frame
-    ## carries a u16 length: a registration over 65 535 bytes wraps that field
-    ## and the server discards the frame, which silently turns a champion into
-    ## a porter instead of truncating it. The design note's rule is that an
-    ## over-long `register.prompt` is TRUNCATED, NEVER REJECTED, so it is cut
-    ## here, on a rune boundary, before the frame is built. Mirrors
-    ## `sim_types.MaxPromptRunes`, which caps it again server-side.
+  LabelRuneCap* = 48
   ConnectTimeoutMs* = 90_000
     ## The game pod and the player pods are started together, so the game's
     ## listener may not be up when this process first dials: a refused connect
@@ -47,12 +30,6 @@ const
     ## otherwise leave this container blocked until the platform kills the
     ## episode. Degrade, never hang.
 
-proc clipPromptRunes*(text: string): string =
-  ## Rune-boundary truncation. Slicing by BYTE index would split a codepoint
-  ## and hand the server a payload that is not valid UTF-8 JSON.
-  if text.runeLen <= PromptRuneCap: text
-  else: text.runeSubStr(0, PromptRuneCap)
-
 proc chatPacket*(text: string): string =
   ## A Sprite v1 chat packet: type byte, u16 length, then the raw payload. The
   ## server reads the payload WITHOUT an ASCII filter, so a non-ASCII policy
@@ -64,17 +41,16 @@ proc chatPacket*(text: string): string =
   for i, ch in text:
     result[3 + i] = ch
 
-proc registrationPayload*(prompt, scripted, label: string): string =
+proc registrationPayload*(scripted, label: string): string =
   ## The one registration object this container sends. Exported so
   ## tests/test_server.nim can push a real payload through the real framing
   ## into `registrationOf`, rather than testing the parser beside the frame.
   $ %*{
     "type": "register",
-    "prompt": clipPromptRunes(prompt),
     "scripted": (if scripted.len > 0: %scripted else: newJNull()),
-    "policy": (
-      if label.len > 0: label
-      elif prompt.len > 0: "llm"
+    "policy": (if label.len > 0:
+      (if label.runeLen <= LabelRuneCap: label
+       else: label.runeSubStr(0, LabelRuneCap))
       else: scripted)
   }
 
@@ -106,21 +82,17 @@ when isMainModule:
   let url = getEnv("COWORLD_PLAYER_WS_URL")
   if url.len == 0:
     quit("COWORLD_PLAYER_WS_URL is not set", 1)
+  if getEnv("PLAYER_PROMPT").len > 0:
+    quit("PLAYER_PROMPT requires the ordinary player image", 1)
   let
-    prompt = getEnv("PLAYER_PROMPT").strip()
     scriptedEnv = getEnv("PLAYER_SCRIPTED").strip().toLowerAscii()
     label = getEnv("PLAYER_POLICY_LABEL").strip()
-  var scripted = ""
-  if prompt.len == 0:
-    scripted = if scriptedEnv in ["porter", "mule"]: scriptedEnv
-               else: "porter"
+  let scripted = if scriptedEnv in ["porter", "mule"]: scriptedEnv
+                 else: "porter"
 
-  let registration = registrationPayload(prompt, scripted, label)
+  let registration = registrationPayload(scripted, label)
 
-  echo "tandem player: connecting (",
-    (if prompt.len > 0: "prompt, " & $clipPromptRunes(prompt).runeLen &
-       " runes (cap " & $PromptRuneCap & ")"
-     else: "scripted " & scripted), ")"
+  echo "tandem player: connecting (scripted ", scripted, ")"
   let socket = connectWithRetry(url)
   socket.send(chatPacket(registration), BinaryMessage)
 

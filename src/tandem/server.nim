@@ -41,7 +41,7 @@ import
   bitworld/runtime,
   bitworld/spriteprotocol,
   mummy,
-  sim, roster, control, orders, baselines, llm, decide,
+  sim, roster, control, orders, decide,
   global, broadcast, replays, replay_runtime, events, wire_constants
 
 when defined(posix):
@@ -425,9 +425,8 @@ proc registrationOf*(
 ): tuple[ok: bool, policy: SeatPolicy, record: string] =
   ## EDIT 3, as a pure function: one chat payload from a seat becomes a policy
   ## and, when it CHANGES that seat's policy, the redacted `register` record
-  ## the replay carries. Nothing here echoes the payload -- the prompt is read
-  ## into the policy and never into the record -- and any text that is not a
-  ## registration object is dropped (`ok` false, no record).
+  ## the replay carries. Strategy prompts remain inside player containers.
+  ## Any text that is not a registration object is dropped.
   ##
   ## Exported so tests/test_server.nim can assert the contract on the SAME code
   ## the loop runs, instead of re-implementing the predicate beside it.
@@ -435,24 +434,14 @@ proc registrationOf*(
   if not parsed.ok:
     return (false, previous, "")
   var policy = SeatPolicy(connected: true)
-  let prompt = clipRunes(parsed.node{"prompt"}.getStr(), MaxPromptRunes)
   let scripted = parsed.node{"scripted"}
   let label = clipRunes(parsed.node{"policy"}.getStr(), MaxPolicyRunes)
-  if parsed.node{"external"}.getBool(false):
-    policy.kind = pkExternal
-    policy.prompt = prompt
-    policy.baseline = ""
-  elif prompt.len > 0:
-    policy.kind = pkLlm
-    policy.prompt = prompt
-    policy.baseline = ""
-  else:
+  if scripted.kind == JString and scripted.getStr() in ["porter", "mule"]:
     policy.kind = pkScripted
-    policy.baseline =
-      if scripted.kind == JString and scripted.getStr().len > 0:
-        scripted.getStr()
-      else:
-        "porter"
+    policy.baseline = scripted.getStr()
+  else:
+    policy.kind = pkExternal
+    policy.baseline = ""
   policy.label = if label.len > 0: label else: policyKindText(policy.kind)
   # The player re-sends its registration once after the first frame (in case
   # the first send raced the slot registration), so only an ACTUAL change earns
@@ -461,8 +450,7 @@ proc registrationOf*(
     previous.connected and
     previous.kind == policy.kind and
     previous.baseline == policy.baseline and
-    previous.label == policy.label and
-    previous.prompt == policy.prompt
+    previous.label == policy.label
   if unchanged:
     return (true, policy, "")
   (true, policy, $(%*{
@@ -554,61 +542,54 @@ proc runServerLoop*(
       " ms (charged against wallClockBudgetSeconds=",
       config.wallClockBudgetSeconds, ")"
 
-  let client = if replayLoaded: nil else: newLlmClient(config)
-  var engine = newTurnEngine(client,
-    if client.isNil: nil else: curlyBatch(client))
-  let modelBatch = engine.batch
+  var engine = newTurnEngine(nil)
   if not replayLoaded:
     engine.batch = proc(calls: seq[BatchCall], timeoutSeconds: int):
         seq[BatchReply] {.closure, gcsafe.} =
-      var modelCalls: seq[BatchCall]
-      var externalCalls: seq[BatchCall]
-      for call in calls:
-        if engine.policies[Seat(call.seat)].kind == pkExternal:
-          externalCalls.add(call)
-        else:
-          modelCalls.add(call)
       let deadline = getMonoTime() + initDuration(seconds = timeoutSeconds)
-      if externalCalls.len > 0:
+      if calls.len > 0:
         {.gcsafe.}:
           withLock appState.lock:
-            appState.pendingExternalTurn = externalCalls[0].turn
+            appState.pendingExternalTurn = calls[0].turn
             appState.externalReplies.clear()
-        for call in externalCalls:
-          var socket: WebSocket
-          var found = false
+      var sockets: seq[WebSocket]
+      var foundSockets: seq[bool]
+      for call in calls:
+        var socket: WebSocket
+        var found = false
+        {.gcsafe.}:
+          withLock appState.lock:
+            for candidate, index in appState.playerIndices.pairs:
+              if index >= 0 and index < sim.players.len and
+                  sim.players[index].seat == Seat(call.seat):
+                socket = candidate
+                found = true
+        sockets.add(socket)
+        foundSockets.add(found)
+        result.add(BatchReply(seat: call.seat, error: "timeout"))
+        if found:
+          socket.send($(%*{
+            "type": "turn", "turn": call.turn,
+            "view": parseJson(call.user)
+          }), TextMessage)
+      while getMonoTime() < deadline:
+        var complete = true
+        for i, call in calls:
+          if result[i].ok or not foundSockets[i]:
+            continue
+          var raw = ""
           {.gcsafe.}:
             withLock appState.lock:
-              for candidate, index in appState.playerIndices.pairs:
-                if index >= 0 and index < sim.players.len and
-                    sim.players[index].seat == Seat(call.seat):
-                  socket = candidate
-                  found = true
-          if found:
-            socket.send($(%*{
-              "type": "turn", "turn": call.turn,
-              "system": call.system, "user": call.user,
-              "candidates": engine.candidates[Seat(call.seat)]
-            }), TextMessage)
-      if modelCalls.len > 0:
-        result = modelBatch(modelCalls, timeoutSeconds)
-      for call in externalCalls:
-        var reply = BatchReply(seat: call.seat, error: "timeout")
-        while getMonoTime() < deadline:
-          {.gcsafe.}:
-            withLock appState.lock:
-              for socket, index in appState.playerIndices.pairs:
-                if index >= 0 and index < sim.players.len and
-                    sim.players[index].seat == Seat(call.seat) and
-                    socket in appState.externalReplies:
-                  reply.ok = true
-                  reply.text = appState.externalReplies[socket]
-                  reply.error = ""
-                  appState.externalReplies.del(socket)
-          if reply.ok:
-            break
-          sleep(10)
-        result.add(reply)
+              if sockets[i] in appState.externalReplies:
+                raw = appState.externalReplies[sockets[i]]
+                appState.externalReplies.del(sockets[i])
+          if raw.len > 0:
+            result[i] = BatchReply(seat: call.seat, ok: true, text: raw)
+          else:
+            complete = false
+        if complete:
+          break
+        sleep(10)
       {.gcsafe.}:
         withLock appState.lock:
           appState.pendingExternalTurn = -1
@@ -839,10 +820,6 @@ proc runServerLoop*(
             if opening or elapsedTicks mod sim.turnTicks() == 0:
               let seconds = int((getMonoTime() - episodeStart).inSeconds)
               let turnIndex = elapsedTicks div sim.turnTicks()
-              for seat in Seat:
-                engine.candidates[seat] = %*[
-                  orderReplyJson(sim.porterOrder(seat, turnIndex)),
-                  orderReplyJson(sim.muleOrder(seat, turnIndex))]
               engine.turn(sim, turnIndex, seconds)
               # The records are the ONE source: writing them into the replay
               # AND folding them back through `applyRecord` is what installs

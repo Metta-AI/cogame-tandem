@@ -2,14 +2,14 @@
 
 Build `Dockerfile.ordinary-player` and seat the resulting image as a normal
 Coworld player. The original `baseline` roster remains the certification
-fixture. An ordinary player uses the authenticated Sprite player socket to
-register `external:true`; each turn, it receives the same private system and
-user prompts as the game-hosted model. The game parses its complete carry
-order and installs the quantized order through the replay record.
+fixture. An ordinary player uses the authenticated Sprite player socket. Each
+turn, it receives a private view and constructs its own prompts or Jev choice
+questions. The game parses its complete carry order and installs the quantized
+order through the replay record.
 
-The default policy chooses the seat-specific porter candidate.
-`TANDEM_JEV=1` asks Jev through the System One sidecar to choose between the
-porter and mule candidates. `TANDEM_ADAPTER_DIR` loads a trained adapter from
+The default policy builds a view-based carry order. `TANDEM_JEV=1` asks Jev
+through System One to choose drive, effort, yield, twist, brace, and note
+independently. `TANDEM_ADAPTER_DIR` loads a trained adapter from
 the player image with its matching local base model, PyTorch, Transformers,
 and PEFT installed. The player's `PLAYER_PROMPT` remains private to its seat.
 
@@ -21,7 +21,7 @@ results. Export at least two complete seeds:
 ```sh
 python3 players/ordinary/export.py /tmp/tandem-dataset \
   /tmp/tandem-run-14 /tmp/tandem-run-15 \
-  --source-revision <game-source-sha> --source canned
+  --source-revision <game-source-sha> --source heuristic
 ```
 
 The exporter splits whole seeds into train and validation, rejects deadline
@@ -34,7 +34,7 @@ nim c -d:release --path:src -o:/tmp/tandem-posttrain tools/export_posttrain.nim
 ```
 
 The other certified variant is `sprint`. Both methods emit Metta post-training
-JSONL with exact hosted prompts and complete accepted actions. From a Metta
+JSONL with player-constructed prompts and complete accepted actions. From a Metta
 checkout with the post-training package installed:
 
 ```sh

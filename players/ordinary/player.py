@@ -12,23 +12,36 @@ from urllib.parse import parse_qs, urlsplit
 
 import websocket
 from capture import Capture
+from policy import choice_questions, default_order, order_from_choices, prompt_for
 
 
-def choose(turn: dict, generator) -> tuple[dict, str]:
-    candidates = turn["candidates"]
+def choose(turn: dict, generator, strategy: str) -> tuple[dict, str, str, str]:
+    view = turn["view"]
+    system, user = prompt_for(view, strategy)
     if generator:
         completion = generator(
             [
-                {"role": "system", "content": turn["system"]},
-                {"role": "user", "content": turn["user"]},
+                {"role": "system", "content": system},
+                {"role": "user", "content": user},
             ]
         )
         action = json.loads(completion)
         if not isinstance(action, dict):
             raise ValueError("trained Tandem decision must be a JSON object")
-        return action, "trained"
+        return action, "trained", system, user
     if os.environ.get("TANDEM_JEV") != "1":
-        return candidates[0], "canned"
+        if strategy:
+            body = json.dumps({"model": os.environ.get("ANTHROPIC_MODEL", "claude-haiku-4-5"),
+                               "max_tokens": 500, "system": system,
+                               "messages": [{"role": "user", "content": user}]}).encode()
+            request = urllib.request.Request(
+                "https://api.anthropic.com/v1/messages", body,
+                {"Content-Type": "application/json", "anthropic-version": "2023-06-01",
+                 "x-api-key": os.environ["ANTHROPIC_API_KEY"]}, method="POST")
+            with urllib.request.urlopen(request, timeout=6) as response:
+                action = json.loads(json.load(response)["content"][0]["text"])
+            return action, "llm", system, user
+        return default_order(view), "heuristic", system, user
     sidecar = os.environ.get("AWS_ENDPOINT_URL_BEDROCK_RUNTIME", "").strip()
     capture = os.environ.get("METTA_CAPTURE_URL", "").strip()
     if sidecar:
@@ -41,21 +54,12 @@ def choose(turn: dict, generator) -> tuple[dict, str]:
         endpoint = os.environ.get("TYPESAFE_BASE_URL", "https://api.typesafe.ai")
         model = os.environ.get("TYPESAFE_DEFAULT_MODEL", "jev-latest")
         key = os.environ["TYPESAFE_API_KEY"]
-    criteria = {
-        str(index): json.dumps(candidate, sort_keys=True)
-        for index, candidate in enumerate(candidates)
-    }
+    questions = choice_questions(view)
     body = json.dumps(
         {
             "model": model,
-            "state": {"policy": turn["system"], "summary": turn["user"]},
-            "questions": {
-                "action": {
-                    "type": "choice",
-                    "instructions": "Choose one complete Tandem carry order.",
-                    "criteria": criteria,
-                }
-            },
+            "state": {"policy": system, "summary": user},
+            "questions": questions,
         }
     ).encode()
     headers = {"Content-Type": "application/json"}
@@ -64,20 +68,21 @@ def choose(turn: dict, generator) -> tuple[dict, str]:
     request = urllib.request.Request(
         endpoint.rstrip("/") + "/v1/systemone", body, headers, method="POST"
     )
-    with urllib.request.urlopen(request, timeout=10) as response:
-        answer = json.load(response)["answers"]["action"]
-    if answer["type"] != "choice" or len(answer["probabilities"]) != len(candidates):
-        raise ValueError("Jev returned the wrong Tandem decision catalog")
-    probabilities = [answer["probabilities"][str(i)] for i in range(len(candidates))]
-    if (
-        any(
-            not isinstance(p, (int, float)) or not math.isfinite(p) or p < 0 or p > 1
-            for p in probabilities
-        )
-        or abs(sum(probabilities) - 1) > len(candidates) * 0.005 + 1e-6
-    ):
-        raise ValueError("Jev returned invalid Tandem decision probabilities")
-    return candidates[max(range(len(candidates)), key=probabilities.__getitem__)], "jev"
+    with urllib.request.urlopen(request, timeout=6) as response:
+        answers = json.load(response)["answers"]
+    selected = {}
+    for name, question in questions.items():
+        answer = answers[name]
+        count = len(question["criteria"])
+        if answer["type"] != "choice" or len(answer["probabilities"]) != count:
+            raise ValueError(f"Jev returned the wrong Tandem {name} catalog")
+        probabilities = [answer["probabilities"][str(i)] for i in range(count)]
+        if (any(not isinstance(p, (int, float)) or not math.isfinite(p) or p < 0 or p > 1
+                for p in probabilities)
+                or abs(sum(probabilities) - 1) > count * 0.005 + 1e-6):
+            raise ValueError(f"Jev returned invalid Tandem {name} probabilities")
+        selected[name] = max(range(count), key=probabilities.__getitem__)
+    return order_from_choices(view, selected), "jev", system, user
 
 
 def main() -> None:
@@ -91,14 +96,14 @@ def main() -> None:
         from posttrain import TransformersGenerator
 
         generator = TransformersGenerator(Path(adapter))
-    backend = "trained" if adapter else "jev" if os.environ.get("TANDEM_JEV") == "1" else "canned"
+    strategy = os.environ.get("PLAYER_PROMPT", "")
+    backend = ("trained" if adapter else "jev" if os.environ.get("TANDEM_JEV") == "1"
+               else "llm" if strategy else "heuristic")
     artifact = Capture(slot, backend) if os.environ.get("TANDEM_CAPTURE_TRAINING") == "1" else None
     registration = json.dumps(
         {
             "type": "register",
-            "prompt": os.environ.get("PLAYER_PROMPT", "")[:4000],
             "scripted": None,
-            "external": True,
             "policy": os.environ.get("PLAYER_POLICY_LABEL", backend)[:128],
         }
     ).encode()
@@ -116,7 +121,7 @@ def main() -> None:
     socket.send(packet, opcode=websocket.ABNF.OPCODE_BINARY)
     re_registered = False
     calls = 0
-    pending: dict[int, tuple[dict, dict, str]] = {}
+    pending: dict[int, tuple[str, str, dict, str]] = {}
     while True:
         opcode, data = socket.recv_data(control_frame=True)
         if opcode == websocket.ABNF.OPCODE_CLOSE:
@@ -132,15 +137,18 @@ def main() -> None:
         frame = json.loads(data)
         kind = frame["type"]
         if kind == "turn":
-            action, source = choose(frame, generator)
-            if source == "jev":
-                calls += 1
-            pending[frame["turn"]] = (frame, action, source)
-            socket.send(json.dumps({"type": "decision", "turn": frame["turn"], "action": action}))
+            if frame["turn"] not in pending:
+                action, source, system, user = choose(frame, generator, strategy)
+                if source == "jev":
+                    calls += 1
+                pending[frame["turn"]] = (system, user, action, source)
+            _, _, action, source = pending[frame["turn"]]
+            socket.send(json.dumps({"type": "decision", "turn": frame["turn"],
+                                    "action": action, "source": source}))
         elif kind == "decision_result":
-            turn, action, source = pending.pop(frame["turn"])
+            system, user, action, source = pending.pop(frame["turn"])
             if artifact and frame["accepted"]:
-                artifact.record(turn["system"], turn["user"], action, source, frame["turn"])
+                artifact.record(system, user, action, source, frame["turn"])
         elif kind == "final":
             if pending:
                 raise RuntimeError("Tandem ended with unacknowledged decisions")

@@ -91,7 +91,7 @@ if __name__ == "__main__":
     parser.add_argument("output", type=Path)
     parser.add_argument("runs", nargs="+", type=Path)
     parser.add_argument("--source-revision", required=True)
-    parser.add_argument("--source", default="canned")
+    parser.add_argument("--source", default="heuristic")
     parser.add_argument("--validation-modulus", type=int, default=5)
     args = parser.parse_args()
     directories = [

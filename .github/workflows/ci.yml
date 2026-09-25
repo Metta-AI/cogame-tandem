@@ -181,6 +181,12 @@ jobs:
       - name: Build image
         run: docker build --platform=linux/amd64 -t "${IMAGE}:ci" .
 
+      - name: Build ordinary player image
+        run: docker build --platform=linux/amd64 -f Dockerfile.ordinary-player -t coworld-tandem-ordinary:ci .
+
+      - name: Test ordinary player decisions
+        run: uv run --no-project --with websocket-client==1.8.0 python -m unittest discover -s players/ordinary -p 'test_*.py' -v
+
       - name: Raw-Docker episode smoke
         # SMOKE_SLUG is passed explicitly so the workflow's SLUG is the single
         # source for the game/player entrypoint names; the script's own
@@ -196,6 +202,29 @@ jobs:
           SMOKE_REQUIRE_REPLAY_JSON: "0"
           SMOKE_REPLAY_OUT: ${{ github.workspace }}/dist/smoke/tandem-smoke.replay
         run: ./tools/ci/docker_smoke.sh "${IMAGE}:ci"
+
+      - name: Mixed ordinary and scripted episode
+        env:
+          SMOKE_SLUG: ${{ env.SLUG }}
+          SMOKE_IMAGE: coworld-tandem:ci
+          SMOKE_ORDINARY_IMAGE: coworld-tandem-ordinary:ci
+          SMOKE_SEATS: "2"
+          SMOKE_REQUIRE_REPLAY_JSON: "0"
+          SMOKE_REPLAY_OUT: ${{ github.workspace }}/dist/smoke/tandem-mixed.replay
+        run: ./tools/ci/docker_smoke.sh "${IMAGE}:ci"
+
+      - name: Check mixed replay decisions
+        run: |
+          python3 tools/replay_summary.py dist/smoke/tandem-mixed.replay > dist/smoke/tandem-mixed.json
+          python3 - <<'PY'
+          import json
+          replay = json.load(open('dist/smoke/tandem-mixed.json'))
+          assert replay['policyKinds'] == ['external', 'scripted'], replay['policyKinds']
+          assert replay['orders'], 'no carry orders were recorded'
+          assert all(order['source'] == ('external' if order['seat'] == 0 else 'scripted')
+                     for order in replay['orders']), 'mixed run lost a player decision'
+          assert not replay['fallbacks'], replay['fallbacks']
+          PY
 
       # The replay this episode produced is the ONLY replay in CI that is
       # known to be a real, current-format episode of this game. wasm-viewer
