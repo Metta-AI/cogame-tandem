@@ -3,20 +3,15 @@
 
 import std/[json, random, strutils, unicode]
 import lib/helpers
-import tandem/llm
 
 proc parse(text: string, previous = emptyOrder(), hasPrevious = false):
     tuple[order: Order, usable: bool] =
-  let payload = extractJsonObject(text)
+  let payload = parseJson(text)
   parseOrder(payload, previous, hasPrevious, emptyOrder(), 3)
 
-proc prosePrefixed() =
-  let got = parse("""Sure! Here is my carry plan:
-```json
-{"note":"easing in","drive":[0.6,-0.8],"effort":0.4,"yield":0.3,
- "twist":-0.5,"brace":0.9,"say":"you lead"}
-```
-Hope that helps.""")
+proc completeAction() =
+  let got = parse("""{"note":"easing in","drive":[0.6,-0.8],"effort":0.4,
+ "yield":0.3,"twist":-0.5,"brace":0.9,"say":"you lead"}""")
   doAssert got.usable
   doAssert got.order.effort == 102, "effort quantised to " & $got.order.effort
   doAssert got.order.yieldQ == 77
@@ -27,7 +22,7 @@ Hope that helps.""")
   let magnitude = speedOf(got.order.driveX, got.order.driveY)
   doAssert abs(magnitude - 4096) <= 2,
     "drive was not quantised to a unit vector: " & $magnitude
-  report "a fenced, prose-prefixed reply parses"
+  report "a complete player action parses"
 
 proc percentagesAndStrings() =
   let got = parse("""{"drive":{"x":"1","y":"0"},"effort":"45","yield":80,
@@ -62,13 +57,13 @@ proc missingAndNonFinite() =
   fallback.driveY = -2896
   for text in ["""{"effort":0.5}""", """{"drive":[null,1],"effort":0.5}""",
       """{"drive":"north","effort":0.5}"""]:
-    let repaired = parseOrder(extractJsonObject(text), previous, true,
+    let repaired = parseOrder(parseJson(text), previous, true,
       fallback, 3)
     doAssert repaired.order.driveX == 0 and repaired.order.driveY == 4096,
       "`" & text & "` kept the scripted fallback's drive (" &
         $repaired.order.driveX & "," & $repaired.order.driveY &
         ") instead of last turn's"
-    let noPrevious = parseOrder(extractJsonObject(text), previous, false,
+    let noPrevious = parseOrder(parseJson(text), previous, false,
       fallback, 3)
     doAssert noPrevious.order.driveX == fallback.driveX and
       noPrevious.order.driveY == fallback.driveY,
@@ -115,36 +110,15 @@ proc runeTruncation() =
   doAssert record.runeLen <= MaxOrderRecordRunes
   report "rune-boundary truncation survives a 4-byte emoji on the boundary"
 
-proc capturedErrorsAreRuneSafe() =
-  ## Captured provider text reaches the replay as `fallback.detail`, so the
-  ## slices that cut it down are on RUNE boundaries. A byte slice of a
-  ## non-ASCII body splits a codepoint, and the pad loop walks the multi-byte
-  ## run across every byte offset the caps land on.
-  let client = LlmClient(transport: ltNone)
+proc fallbackDetailsAreRuneSafe() =
+  ## Player transport errors can reach replay fallback.detail. Each cut must
+  ## preserve complete runes, including near the cap's byte boundary.
   for pad in 0 .. 3:
-    let body = repeat("x", pad) & repeat("\u{1F600}", 400)
-    for code in [401, 429, 500]:
-      var detail = ""
-      try:
-        discard client.completionText(code, body)
-        doAssert false, "a " & $code & " did not raise"
-      except CatchableError as failure:
-        detail = failure.msg
-      doAssert isValidUtf8(detail),
-        "the captured " & $code & " body is not valid UTF-8 at pad " & $pad
-      doAssert isValidUtf8(clipRunes(detail, MaxDetailRunes)),
-        "fallback.detail is not valid UTF-8 at pad " & $pad
-      doAssert detail.runeLen < 500, "the body was not truncated: " &
-        $detail.runeLen & " runes"
-    var noJson = ""
-    try:
-      discard extractJsonObject(repeat("x", pad) & repeat("\u{1F600}", 400))
-      doAssert false, "a brace-free reply did not raise"
-    except CatchableError as failure:
-      noJson = failure.msg
-    doAssert isValidUtf8(noJson), "the no-JSON error is not valid UTF-8"
-    doAssert isValidUtf8(clipRunes(noJson, MaxDetailRunes))
-  report "captured error text is cut on rune boundaries"
+    let detail = repeat("x", pad) & repeat("\u{1F600}", 400)
+    let clipped = clipRunes(detail, MaxDetailRunes)
+    doAssert isValidUtf8(clipped), "fallback.detail is not valid UTF-8"
+    doAssert clipped.runeLen == MaxDetailRunes
+  report "player fallback detail is cut on rune boundaries"
 
 proc oversizeRecordStaysJson() =
   ## An over-long record is shrunk STRUCTURALLY, so it is always parseable —
@@ -179,13 +153,13 @@ proc recordRoundTrips() =
   report "every quantised field round-trips through the replay record"
 
 when isMainModule:
-  prosePrefixed()
+  completeAction()
   percentagesAndStrings()
   missingAndNonFinite()
   outOfRangeClamps()
   nothingUsable()
   runeTruncation()
-  capturedErrorsAreRuneSafe()
+  fallbackDetailsAreRuneSafe()
   oversizeRecordStaysJson()
   recordRoundTrips()
   echo "test_orders: parsing is tolerant and truncation is rune-safe"

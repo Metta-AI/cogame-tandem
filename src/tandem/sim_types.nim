@@ -181,8 +181,6 @@ const
   DefaultMinPlayers* = 2
   MaxPlayers* = SeatCount
   DefaultMaxGames* = 1
-  DefaultModel* = "claude-haiku-4-5-20251001"
-  DefaultMaxOutputTokens* = 900
 
   # ---- reply caps (runes, never bytes) --------------------------------------
   MaxNoteRunes* = 160
@@ -398,8 +396,6 @@ type
     fastMode*: bool
     showPlayerLabels*: bool
     closedRoster*: bool
-    model*: string
-    maxOutputTokens*: int
     maxSeatForceMilliNewtons*: int
     gripLimitMilliNewtons*: int
     damageCap*: int

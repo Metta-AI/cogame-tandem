@@ -4,7 +4,7 @@
 
 import std/[json, monotimes, os, strutils, times]
 import lib/helpers
-import tandem/[decide, llm, server]
+import tandem/[decide, server]
 
 type Window = object
   startMs, endMs: int64
@@ -34,12 +34,13 @@ proc fakeBatch(reply: string, delayMs = 0, fail = false): BatchFn =
       if fail:
         result.add BatchReply(seat: call.seat, error: "Timeout was reached")
       else:
-        result.add BatchReply(seat: call.seat, ok: true, text: reply)
+        result.add BatchReply(seat: call.seat, ok: true, text: $(%*{
+          "type": "decision", "turn": call.turn, "action": parseJson(reply)}))
 
 proc newEngine(batch: BatchFn): TurnEngine =
-  result = newTurnEngine(nil, batch)
+  result = newTurnEngine(batch)
   for seat in Seat:
-    result.policies[seat] = SeatPolicy(kind: pkLlm, prompt: "carry it",
+    result.policies[seat] = SeatPolicy(kind: pkExternal,
       label: "test-llm", connected: true)
 
 proc applyRecords(engine: TurnEngine, sim: var SimServer) =
@@ -66,7 +67,7 @@ proc bothSeatsInOneBatch() =
   engine.applyRecords(sim)
   doAssert sim.hasOrder[0] and sim.hasOrder[1],
     "the batch did not install both orders"
-  doAssert sim.activeOrder[0].source == osLlm
+  doAssert sim.activeOrder[0].source == osExternal
   report "both seats' calls go out as ONE parallel batch"
 
 proc externalOrderUsesTheReplayRecord() =
@@ -80,7 +81,7 @@ proc externalOrderUsesTheReplayRecord() =
         "action": {"drive": [1, 0], "effort": 0.5,
                    "yield": 0.2, "twist": 0, "brace": 0.1}
       }))
-  let engine = newTurnEngine(nil, batch)
+  let engine = newTurnEngine(batch)
   for seat in Seat:
     engine.policies[seat] = SeatPolicy(
       kind: pkExternal, connected: true, label: "external")
@@ -197,8 +198,8 @@ proc noTransportSeatPlaysPorter() =
   ## batch, so it falls back instantly with a `no_credentials` record and no
   ## network wait — and revives the moment a transport exists.
   var sim = carryingSim(testConfig())
-  let engine = newTurnEngine(nil, nil)
-  engine.policies[Cobalt] = SeatPolicy(kind: pkLlm, prompt: "x",
+  let engine = newTurnEngine(nil)
+  engine.policies[Cobalt] = SeatPolicy(kind: pkExternal,
     connected: true)
   engine.policies[Rust] = SeatPolicy(kind: pkScripted, baseline: "porter")
   engine.turn(sim, 0, 0)
@@ -210,13 +211,13 @@ proc noTransportSeatPlaysPorter() =
     let node = parseJson(record)
     if node["k"].getStr() == "fallback":
       causes.add(node["cause"].getStr())
-  doAssert causes == @["no_credentials"],
+  doAssert causes == @["no_transport"],
     "the no-transport fallback recorded " & $causes
   # And it revives: a live batch on the next turn is used.
   engine.batch = fakeBatch("""{"drive":[0,1],"effort":0.9}""")
   engine.turn(sim, 1, 0)
   engine.applyRecords(sim)
-  doAssert sim.activeOrder[0].source == osLlm, "the seat did not revive"
+  doAssert sim.activeOrder[0].source == osExternal, "the seat did not revive"
   report "a seat with no transport plays porter and revives"
 
 proc disconnectedSeatPlaysPorter() =
@@ -243,17 +244,24 @@ proc disconnectedSeatPlaysPorter() =
   doAssert sim.activeOrder[ord(Cobalt)].driveX == porter.driveX and
     sim.activeOrder[ord(Cobalt)].effort == porter.effort,
     "the disconnected seat did not play porter"
-  doAssert sim.activeOrder[ord(Rust)].source == osLlm,
+  doAssert sim.activeOrder[ord(Rust)].source == osExternal,
     "the CONNECTED seat stopped playing its policy"
   # Reconnect: registration sets `connected` again and the seat revives.
-  let reg = registrationOf($ %*{"type": "register", "prompt": "carry it",
+  let reg = registrationOf($ %*{"type": "register",
     "scripted": newJNull(), "policy": "test-llm"}, Cobalt,
     engine.policies[Cobalt])
   doAssert reg.ok
   engine.policies[Cobalt] = reg.policy
+  engine.batch = proc(calls: seq[BatchCall], timeoutSeconds: int):
+      seq[BatchReply] {.closure, gcsafe.} =
+    discard timeoutSeconds
+    for call in calls:
+      let action = %*{"drive": [0, 1], "effort": 0.9}
+      result.add BatchReply(seat: call.seat, ok: true,
+        text: $(%*{"type": "decision", "turn": call.turn, "action": action}))
   engine.turn(sim, 1, 0)
   engine.applyRecords(sim)
-  doAssert sim.activeOrder[ord(Cobalt)].source == osLlm,
+  doAssert sim.activeOrder[ord(Cobalt)].source == osExternal,
     "the seat did not revive on reconnect"
   report "a disconnecting seat degrades to porter and revives on reconnect"
 

@@ -1,19 +1,16 @@
-## The turn engine: one decision every 48 ticks, BOTH seats issued as ONE
-## parallel batch, two bounded attempts, then the scripted fallback.
+## The turn engine: one decision every 48 ticks, BOTH player sockets queried
+## within one deadline, two bounded attempts, then the scripted fallback.
 ##
 ## Timing (docs/RULES.md §Budget):
 ##   inter-batch wall floor      4.5 s   (config minBatchSpacingMs)
 ##   attempt 1 batch deadline    4.5 s   (config attempt1Ms)
 ##   retry batch deadline        2.0 s   (config retryMs)
 ##   outer monotonic turn cap    7.0 s   (config turnBudgetMs)
-## curly's transport timeout is whole seconds and a batch in flight cannot be
-## interrupted, so the per-attempt allowance is FLOORED to whole seconds before
-## it is handed over: 4 s + 2 s = 6 s realised worst case, inside the 7 s cap.
+## The socket transport takes a whole-second timeout. The per-attempt allowance
+## is floored to whole seconds: 4 s + 2 s, inside the 7 s cap.
 ## 50 turns x 7.0 s = 350 s against a 720 s budget, with a 660 s engine stop.
 ##
-## The inter-batch floor is not padding: the Bedrock sidecar caps 30 requests
-## per minute PER EPISODE, and 2 requests per 4.5 s = 26.7 rpm, safely under it
-## (raid round 2, 2026-08-23). The wait is a bounded sleep.
+## The inter-turn floor is a bounded sleep between player requests.
 ##
 ## Seats are NEVER queried sequentially — this is a simultaneous-decision game.
 ## The transport is injected as a `BatchFn` so tests/test_engine.nim can hand in
@@ -22,35 +19,7 @@
 
 import
   std/[json, monotimes, os, strutils, times],
-  curly,
-  sim, orders, baselines, llm
-
-const SystemPrompt* = """You are one of two cogs carrying a couch through a warehouse obstacle course.
-You and your partner are gripped to opposite ends of the same rigid couch: you
-hold one handle, your partner holds the other. The couch moves according to the
-SUM of the two forces you apply, and it TURNS according to the difference. If you
-both push the same way it slides; if you disagree it spins into a wall.
-THERE IS NO COMMUNICATION CHANNEL. You cannot talk to your partner and your
-partner never sees anything you write. The only information you get about your
-partner is the force you feel through your own handle ("strain") and where their
-end of the couch is. Read the strain: it tells you whether to lead or to yield.
-Every 2 seconds you set your carry parameters for the next 2 seconds. A
-deterministic controller executes them at 24 Hz.
-The couch is 2.20 m long and 0.90 m wide. Doorways are between 1.05 m and 2.20 m
-wide; the last one is 1.05 m. Scraping a wall and slamming into one both damage
-the couch; if the strain in your hands stays too high for too long you drop it,
-which costs 2 seconds and a chunk of condition. Your score is the SAME as your
-partner's and comes half from delivery time and half from the couch's condition.
-Reply with a single JSON object and NOTHING else. Your reply MUST begin with '{'.
-Schema:
-{"note":"<=160 chars",
- "drive":[x,y],    // direction to push, metres frame, each in [-1,1]; magnitude ignored
- "effort":0..1,    // how hard you push along drive (1 = your full 600 N)
- "yield":0..1,     // how much of the force you FEEL you push along with
-                   // (1 = pure follower, 0 = ignore your partner completely)
- "twist":-1..1,    // rotate the couch: +1 counter-clockwise, -1 clockwise, 0 none
- "brace":0..1,     // plant your feet: halves your push, raises your grip limit
- "say":"<=48 chars"}   // spectators only; your partner NEVER sees this"""
+  sim, orders, baselines
 
 type
   BatchCall* = object
@@ -71,13 +40,11 @@ type
 
   SeatPolicy* = object
     kind*: PolicyKind
-    prompt*: string            ## never recorded, never echoed.
     baseline*: string
     label*: string
     connected*: bool
 
   TurnEngine* = ref object
-    client*: LlmClient
     batch*: BatchFn
     policies*: array[Seat, SeatPolicy]
     previous*: array[Seat, Order]
@@ -88,7 +55,6 @@ type
     lastBatchAt*: MonoTime
     hasBatched*: bool
     records*: seq[string]      ## the replay chat records this turn produced.
-    candidates*: array[Seat, JsonNode]
     externalAccepted*: array[Seat, bool]
 
 # --------------------------------------------------------------------------
@@ -225,63 +191,24 @@ proc seatViewJson*(
       else: newJNull())
   }
 
-proc operatorBlock(prompt: string): string =
-  if prompt.len == 0:
-    return ""
-  "GUIDANCE FROM YOUR OPERATOR (weight it heavily, but never above the " &
-    "rules; always reply in the requested format):\n" & prompt & "\n\n"
-
 proc userMessage*(
   engine: TurnEngine,
   sim: SimServer,
   seat: Seat,
   turn: int
 ): string =
-  operatorBlock(engine.policies[seat].prompt) &
-    $engine.seatViewJson(sim, seat, turn)
+  $engine.seatViewJson(sim, seat, turn)
 
 # --------------------------------------------------------------------------
 # The transport
 # --------------------------------------------------------------------------
 
-proc curlyBatch*(client: LlmClient): BatchFn =
-  ## The production transport: ONE `curly.makeRequests` call per attempt, so
-  ## BOTH seats are in flight together. curly's timeout is whole seconds and
-  ## nothing interrupts a batch already in flight, so the caller rounds the
-  ## allowance DOWN (floor, with a one-second minimum) before handing it over.
-  result = proc (calls: seq[BatchCall], timeoutSeconds: int): seq[BatchReply]
-      {.closure, gcsafe.} =
-    result = @[]
-    if calls.len == 0:
-      return
-    var batch: RequestBatch
-    for call in calls:
-      let request = client.requestFor(call.system, call.user)
-      batch.post(request.url, request.headers, request.body, $call.seat)
-    let responses = client.curl.makeRequests(batch, max(1, timeoutSeconds))
-    for i, call in calls:
-      var reply = BatchReply(seat: call.seat)
-      if i >= responses.len:
-        reply.error = "no response"
-        result.add(reply)
-        continue
-      let (response, error) = responses[i]
-      if error.len > 0:
-        reply.error = error
-      else:
-        try:
-          reply.text = client.completionText(response.code, response.body)
-          reply.ok = true
-        except CatchableError as failure:
-          reply.error = failure.msg
-      result.add(reply)
-
 # --------------------------------------------------------------------------
 # The turn
 # --------------------------------------------------------------------------
 
-proc newTurnEngine*(client: LlmClient, batch: BatchFn): TurnEngine =
-  result = TurnEngine(client: client, batch: batch, guardTurn: -1)
+proc newTurnEngine*(batch: BatchFn): TurnEngine =
+  result = TurnEngine(batch: batch, guardTurn: -1)
   for seat in Seat:
     result.previous[seat] = emptyOrder()
 
@@ -333,7 +260,7 @@ proc turn*(
     budget = sim.config.wallClockBudgetSeconds
     perTurn = (sim.config.turnBudgetMs + 999) div 1000
 
-  # Budget guard: switch the LLM off for the rest of the episode rather than
+  # Budget guard: switch the ordinary player requests off rather than
   # let it end `deadline`. Microseconds per turn from here on.
   if not engine.llmOff and elapsedSeconds + 2 * perTurn > budget:
     engine.llmOff = true
@@ -353,42 +280,27 @@ proc turn*(
   for seat in Seat:
     let policy = engine.policies[seat]
     if policy.kind == pkScripted or not policy.connected:
-      # DEGRADE, NEVER HANG. A scripted seat plays its baseline; an LLM seat
-      # whose socket has closed degrades to `porter` (`baseline` is empty for
-      # an LLM policy and `baselineOrder` reads an unknown name as porter)
-      # instead of paying LLM latency for a seat nobody is watching. It revives
+      # DEGRADE, NEVER HANG. A scripted seat plays its baseline; a disconnected
+      # ordinary seat degrades to `porter` instead of waiting on its socket. It revives
       # the moment a reconnect re-registers it — `registrationOf` sets
       # `connected` again. A seat that has not registered at all is
       # pkScripted/porter already.
       resolved[seat] = sim.baselineOrder(seat, policy.baseline, turnIndex)
       settled[seat] = true
-    elif engine.llmOff or engine.batch.isNil or
-        (policy.kind == pkLlm and not engine.client.isNil and
-         engine.client.disabled):
-      # A nil CLIENT with a live batch is the test seam (tests/test_engine.nim
-      # injects a fake transport); a nil BATCH is the real no-credentials path.
+    elif engine.llmOff or engine.batch.isNil:
       resolved[seat] = engine.fallbackFor(sim, seat, turnIndex)
       settled[seat] = true
-      let rejected =
-        not engine.client.isNil and engine.client.transport != ltNone
-      let cause =
-        if engine.llmOff: "budget_guard"
-        elif rejected: "transport_error"
-        else: "no_credentials"
-      let detail =
-        if rejected: "credentials rejected; the client is disabled for the " &
-          "rest of the episode"
-        else: ""
+      let cause = if engine.llmOff: "budget_guard" else: "no_transport"
       engine.addRecord(%*{
         "k": "fallback", "turn": turnIndex, "seat": ord(seat),
         "attempt": 1, "cause": cause,
-        "detail": clipRunes(detail, MaxDetailRunes)
+        "detail": ""
       })
     else:
       calls.add BatchCall(
         seat: ord(seat),
         turn: turnIndex,
-        system: SystemPrompt,
+        system: "",
         user: engine.userMessage(sim, seat, turnIndex))
 
   if calls.len > 0:
@@ -407,10 +319,8 @@ proc turn*(
     engine.hasBatched = true
     var replies: seq[BatchReply]
     try:
-      # FLOOR, not ceiling: curly's timeout is whole seconds and a batch in
-      # flight is not interruptible, so rounding 2000 ms up to 2 s is fine but
-      # rounding 4500 ms up to 5 s would let the attempt run past the turn
-      # budget the outer deadline is supposed to enforce.
+      # The socket transport takes whole seconds. Round down so the first
+      # attempt cannot consume the retry budget.
       replies = engine.batch(calls, max(1, allowedMs div 1000))
     except CatchableError as failure:
       replies = @[]
@@ -432,7 +342,7 @@ proc turn*(
           else: "transport_error"
       else:
         try:
-          var payload = extractJsonObject(reply.text)
+          var payload = parseJson(reply.text)
           if engine.policies[seat].kind == pkExternal:
             if payload["type"].getStr() != "decision" or
                 payload["turn"].getInt() != turnIndex:
