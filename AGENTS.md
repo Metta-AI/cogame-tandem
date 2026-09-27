@@ -20,7 +20,7 @@ about the partner is the force felt through your own handle.
 ```
 src/tandem.nim            entrypoint (/bin/tandem)
 src/tandem_player.nim     the bundled scripted player (/bin/tandem-player)
-players/ordinary/       ordinary prompt, Jev, heuristic and trained player
+players/ordinary/       ordinary prompt, heuristic and trained player
 src/tandem/
   sim.nim sim_types.nim sim_state.nim sim_config.nim course.nim control.nim
                           THE DETERMINISM BOUNDARY (see below)

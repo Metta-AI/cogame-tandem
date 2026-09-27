@@ -24,7 +24,7 @@ proc registrationBecomesARedactedRecord() =
 proc externalRegistrationUsesTheSamePlayerSocket() =
   let reg = registrationOf($ %*{
     "type": "register", "scripted": newJNull(),
-    "policy": "tandem-jev"}, Cobalt, SeatPolicy())
+    "policy": "tandem-external"}, Cobalt, SeatPolicy())
   doAssert reg.ok and reg.policy.kind == pkExternal
   doAssert parseJson(reg.record)["kind"].getStr() == "external"
   report "ordinary policy registers through the player socket"
