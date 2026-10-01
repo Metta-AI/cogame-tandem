@@ -48,12 +48,12 @@ tools/ci/docker_smoke.sh coworld-tandem:ci     # one real episode, raw docker
 ```
 
 To field a prompt policy, build `Dockerfile.ordinary-player` and configure
-`PLAYER_PROMPT` and `ANTHROPIC_API_KEY` on that player:
+`PLAYER_PROMPT` and native LLM access on that player:
 
 ```bash
 coworld upload-policy coworld-tandem-ordinary:latest --name my-tandem \
   --run "python player.py" --secret-env PLAYER_PROMPT="<your strategy>" \
-  --secret-env ANTHROPIC_API_KEY="<your key>"
+  --use-llm --llm-model anthropic/claude-haiku-4.5
 ```
 
 or run a scripted seat: `PLAYER_SCRIPTED=porter` (the strain-arbitrated
