@@ -145,10 +145,7 @@ proc uploadContract() =
   doAssert runnable["type"].getStr() == "game"
   doAssert runnable["image"].getStr() == "{{TANDEM_IMAGE}}"
   doAssert runnable["run"][0].getStr() == "/bin/tandem"
-  doAssert runnable["env"]["ANTHROPIC_API_KEY_URI"].getStr() ==
-    "secret://coworld/tandem/anthropic_api_key",
-    "the game runnable does not receive the anthropic secret; every league " &
-      "episode would play scripted"
+  doAssert not runnable.hasKey("env")
   doAssert runnable["source_url"].getStr().startsWith("https://github.com/")
   doAssert m["game"]["replay_viewer"]["bundle"].getStr() ==
     "static-replay-viewer"
@@ -161,7 +158,7 @@ proc composeAndImageAgree() =
       "placeholder is derived from it"
   doAssert "image: coworld-tandem:latest" in compose
   doAssert "platform: linux/amd64" in compose
-  doAssert "network: host" in compose
+  doAssert "network: host" notin compose
   let ci = repoFile(".github/workflows/ci.yml")
   doAssert "IMAGE: coworld-tandem" in ci
   doAssert "SLUG: tandem" in ci
