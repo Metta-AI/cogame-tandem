@@ -7,7 +7,7 @@
 ## parley/babel lineage tandem carries across.
 ##
 ## Credentials, in order of preference:
-##   Bedrock sidecar / bearer token   - hosted pods
+##   COWORLD_LLM_ENDPOINT (hosted), then local Bedrock / bearer token   - hosted pods
 ##   ANTHROPIC_API_KEY                - the key itself
 ##   ANTHROPIC_API_KEY_URI            - a URI holding the key
 ## With no credentials the client is `disabled` and every turn falls back
@@ -33,7 +33,7 @@ const
 
 type
   LlmTransport* = enum
-    ltNone, ltBedrock, ltAnthropic
+    ltNone, ltSidecar, ltBedrock, ltAnthropic
 
   LlmRequest* = object
     ## One prepared HTTP call. `decide.nim` collects both seats' requests and
@@ -45,6 +45,7 @@ type
   LlmClient* = ref object
     curl*: Curly
     transport*: LlmTransport
+    sidecarEndpoint: string
     apiKey: string
     bedrockEndpoint: string
     bedrockModels: seq[string]
@@ -103,6 +104,13 @@ proc newLlmClient*(config: GameConfig): LlmClient =
     model: config.model,
     maxOutputTokens: config.maxOutputTokens
   )
+  let sidecarEndpoint = getEnv("COWORLD_LLM_ENDPOINT").strip()
+  if sidecarEndpoint.len > 0:
+    result.transport = ltSidecar
+    result.sidecarEndpoint = sidecarEndpoint.strip(chars = {'/'}, leading = false)
+    result.model = getEnv("COWORLD_LLM_MODEL", "anthropic/claude-haiku-4.5")
+    result.curl = newCurly()
+    return
   let
     bedrockEndpoint = getEnv("AWS_ENDPOINT_URL_BEDROCK_RUNTIME").strip()
     bedrockToken = getEnv("AWS_BEARER_TOKEN_BEDROCK").strip()
@@ -128,7 +136,7 @@ proc newLlmClient*(config: GameConfig): LlmClient =
     result.disabled = true
     echo "tandem llm: no LLM credentials; using scripted fallback"
 
-proc requestFor*(client: LlmClient, system, user: string): LlmRequest =
+proc requestFor*(client: LlmClient, system, user: string, slot: int): LlmRequest =
   ## Builds one prepared call. Body shape copied from babel as is:
   ## `max_tokens` 900 (400 truncates), no `output_config.effort` on Haiku 4.5
   ## (it 400s on it), no `temperature` (an untested field on a Bedrock body).
@@ -152,6 +160,11 @@ proc requestFor*(client: LlmClient, system, user: string): LlmRequest =
     if client.bedrockToken.len > 0:
       result.headers["authorization"] = "Bearer " & client.bedrockToken
     result.url = client.bedrockUrl()
+  elif client.transport == ltSidecar:
+    body["model"] = %client.model
+    result.headers["X-Coworld-Player-Slot"] = $slot
+    result.headers["anthropic-version"] = AnthropicVersion
+    result.url = client.sidecarEndpoint & "/v1/messages"
   else:
     body["model"] = %client.model
     if "haiku" notin client.model and "4-5" notin client.model:
