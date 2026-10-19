@@ -115,7 +115,7 @@ def main() -> None:
     socket.settimeout(120)
     socket.send(packet, opcode=websocket.ABNF.OPCODE_BINARY)
     re_registered = False
-    pending: dict[int, tuple[str, str, dict, str]] = {}
+    pending: dict[int, tuple[str, str, dict, str, PromptSelection]] = {}
     while True:
         opcode, data = socket.recv_data(control_frame=True)
         if opcode == websocket.ABNF.OPCODE_CLOSE:
@@ -132,8 +132,13 @@ def main() -> None:
         kind = frame["type"]
         if kind == "turn":
             action, source, system, user = choose(frame, generator, strategy)
-            pending[frame["turn"]] = (system, user, action, source)
-            _, _, action, source = pending[frame["turn"]]
+            pending[frame["turn"]] = (
+                system,
+                user,
+                action,
+                source,
+                PromptSelection.from_config(frame["prompt_configuration"]),
+            )
             socket.send(
                 json.dumps(
                     {
@@ -147,9 +152,9 @@ def main() -> None:
             )
         elif kind == "decision_result":
             append_evidence({"event_type": "receipt", **frame})
-            system, user, action, source = pending.pop(frame["turn"])
+            system, user, action, source, selection = pending.pop(frame["turn"])
             if artifact and frame["accepted"]:
-                artifact.record(system, user, action, source, frame["turn"])
+                artifact.record(system, user, frame["executed_action"], source, frame["turn"], selection)
         elif kind == "final":
             append_evidence({"event_type": "final", **frame})
             if pending:

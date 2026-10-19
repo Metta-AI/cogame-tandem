@@ -8,6 +8,8 @@ import os
 import zipfile
 from pathlib import Path
 
+from prompts import PromptSelection, PromptVariant
+
 
 def export(
     runs: list[Path],
@@ -23,6 +25,9 @@ def export(
     seeds: set[int] = set()
     for run in runs:
         config = json.loads((run / "config.json").read_text())
+        selection = PromptSelection.from_config(config)
+        if selection.selected in (PromptVariant.HELDOUT_BRIEFING, PromptVariant.HELDOUT_REFERENCE):
+            raise ValueError("held-out wording cannot enter training sources")
         results = json.loads((run / "results.json").read_text())
         seed = config["seed"]
         if seed in seeds:
@@ -47,6 +52,14 @@ def export(
             ):
                 raise ValueError(f"invalid training artifact {artifact}")
             for row in trajectory["decisions"]:
+                system, user = [message["content"] for message in row["prompt"]]
+                if system != selection.system():
+                    raise ValueError("artifact wording differs from episode configuration")
+                if "prompt_template" in row:
+                    if row["prompt_template"] != selection.metadata(system, user):
+                        raise ValueError("artifact prompt provenance differs")
+                elif selection.selected != PromptVariant.CANONICAL:
+                    raise ValueError("noncanonical artifacts require prompt provenance")
                 if row["source"] != source:
                     continue
                 example = {
@@ -68,9 +81,7 @@ def export(
     output.mkdir(mode=0o700, parents=True, exist_ok=False)
     for split, rows in splits.items():
         path = output / f"{split}.jsonl"
-        with os.fdopen(
-            os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), "w"
-        ) as destination:
+        with os.fdopen(os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), "w") as destination:
             destination.write("\n".join(rows) + "\n")
     manifest = {
         "schema_version": 1,
@@ -97,11 +108,7 @@ if __name__ == "__main__":
     directories = [
         episode
         for run in args.runs
-        for episode in (
-            sorted(run.glob("episode-*"))
-            if not (run / "results.json").exists()
-            else [run]
-        )
+        for episode in (sorted(run.glob("episode-*")) if not (run / "results.json").exists() else [run])
     ]
     print(
         export(

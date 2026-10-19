@@ -10,6 +10,8 @@ import zipfile
 from pathlib import Path
 from urllib.parse import unquote, urlsplit
 
+from prompts import PromptSelection
+
 
 def append_evidence(record: dict) -> None:
     destination = os.environ.get("TANDEM_PLAYER_TRACE_PATH", "")
@@ -26,12 +28,13 @@ class Capture:
         self.upload_url = os.environ["COWORLD_PLAYER_ARTIFACT_UPLOAD_URL"]
         self.rows: list[dict] = []
 
-    def record(self, system: str, user: str, action: dict, source: str, tick: int) -> None:
+    def record(self, system: str, user: str, action: dict, source: str, tick: int, selection: PromptSelection) -> None:
         self.rows.append(
             {
                 "decision_id": len(self.rows),
                 "tick": tick,
                 "source": source,
+                "prompt_template": selection.metadata(system, user),
                 "prompt": [
                     {"role": "system", "content": system},
                     {"role": "user", "content": user},

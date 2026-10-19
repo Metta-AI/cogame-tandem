@@ -8,6 +8,7 @@ import subprocess
 import sys
 import threading
 import time
+import zipfile
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from uuid import NAMESPACE_URL, uuid5
@@ -26,6 +27,7 @@ def main() -> None:
     parser.add_argument("output", type=Path)
     parser.add_argument("--variant", choices=("default", "sprint"), default="default")
     parser.add_argument("--wording", default="canonical")
+    parser.add_argument("--seed", type=int, default=7)
     parser.add_argument("--mode", choices=("accepted", "retry", "fallback"), default="accepted")
     args = parser.parse_args()
     assert not subprocess.check_output(["git", "status", "--porcelain"], cwd=ROOT, text=True).strip()
@@ -33,7 +35,7 @@ def main() -> None:
     manifest = json.loads((ROOT / "coworld_manifest_template.json").read_text())
     config = next(v["game_config"] for v in manifest["variants"] if v["id"] == args.variant)
     config.update(
-        seed=7,
+        seed=args.seed,
         promptVariant=args.wording,
         promptSeed=4,
         tokens=["t0", "t1"],
@@ -115,6 +117,8 @@ def main() -> None:
                 env,
                 PLAYER_PROMPT=f"PRIVATE-STRATEGY-{seat}: Deliver the couch.",
                 TANDEM_PLAYER_TRACE_PATH=str(output / f"player-{seat}.jsonl"),
+                TANDEM_CAPTURE_TRAINING="1",
+                COWORLD_PLAYER_ARTIFACT_UPLOAD_URL=(output / f"policy_artifact_{seat}.zip").as_uri(),
                 COWORLD_PLAYER_WS_URL=f"ws://127.0.0.1:{port}/player?slot={seat}&token=t{seat}",
             )
             log = (output / f"player-{seat}.log").open("w")
@@ -150,6 +154,11 @@ def main() -> None:
             sent = {e["attempt_id"]: e for e in events if e["event_type"] == "request"}
             received = {e["attempt_id"]: e for e in events if e["event_type"] == "response"}
             receipts = {e["turn"]: e for e in events if e["event_type"] == "receipt"}
+            with zipfile.ZipFile(output / f"policy_artifact_{seat}.zip") as archive:
+                artifact = json.loads(archive.read("trajectory.json"))
+            assert artifact["complete"] and artifact["scores"] == result["scores"]
+            accepted_rows = {row["tick"]: row for row in artifact["decisions"]}
+            assert accepted_rows.keys() == {r["turn"] for r in decisions if r["seat"] == seat and r["accepted"]}
             for row in (r for r in decisions if r["seat"] == seat):
                 assert replay_orders[(row["turn"], seat)]["q"] == row["q"]
                 q = row["q"]
@@ -159,6 +168,10 @@ def main() -> None:
                     value / 255 for value in q[2:]
                 ]
                 assert receipts[row["turn"]]["executed_action"] == row["executed_action"]
+                if row["accepted"]:
+                    artifact_row = accepted_rows[row["turn"]]
+                    assert json.loads(artifact_row["completion"][0]["content"]) == row["executed_action"]
+                    assert artifact_row["prompt_template"] == sent[row["selected_attempt_id"]]["prompt_configuration"]
                 assert len(row["attempts"]) == (1 if args.mode == "accepted" else 2)
                 assert row["prompt_configuration"] == {
                     k: v for k, v in selection.metadata("", "").items() if not k.endswith("_sha256")

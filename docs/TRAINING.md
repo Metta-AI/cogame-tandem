@@ -24,9 +24,12 @@ python3 players/ordinary/export.py /tmp/tandem-dataset \
 
 The exporter splits whole seeds into train and validation, rejects deadline
 and fault endings, and checks the source revision and game scores. Output
-uses `tandem-carry-v1`. These legacy player artifacts contain proposals and
-acceptance flags, not authoritative installed-action evidence. They do not qualify
-new prompt-fuzzing training data. The native scripted exporter produces private,
+uses `tandem-carry-v1`. Current artifacts include prompt provenance and the
+host-receipted installed action. Older canonical artifacts retain their proposal
+format. The reader preserves those archives and rejects held-out wording or
+inconsistent prompt provenance. Player artifacts alone omit rejected attempts and
+do not qualify complete native training evidence; use the private host and HTTP
+traces for reviewed ingestion. The native scripted exporter produces private,
 review-gated trajectory candidates instead:
 
 ```sh
