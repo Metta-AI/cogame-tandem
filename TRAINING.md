@@ -56,6 +56,27 @@ python3 tools/test_source_prompts.py /tmp/tandem-posttrain /tmp/tandem-source-pa
 These checks establish semantic preservation and provenance. They do not measure
 whether prompt diversity improves learning stability or held-out model performance.
 
+## Native evidence
+
+Set `TANDEM_HOST_TRACE_PATH` and `TANDEM_SOURCE_REVISION` on the host. Give each
+ordinary player a separate `TANDEM_PLAYER_TRACE_PATH` and the same source revision.
+These optional files use exclusive creation and mode 0600. Keep them private:
+player traces include operator instructions and exact HTTP bodies.
+
+Turn frames carry `attempt_id` and `prompt_configuration`. Ordinary players echo
+the attempt identifier; receipts contain the selected attempt and installed action.
+Each retry requests a fresh completion. Host traces record pre-turn views, accepted
+and rejected attempts, installed actions, exact quantized controls, and final results.
+These fields do not enter spectator replay configuration or simulation state.
+
+```sh
+python3 tools/test_native_prompts.py /tmp/tandem /tmp/tandem-native --wording mixed
+```
+
+The native harness runs both ordinary Python players against a local HTTP fixture
+under the published game configuration. `--mode retry` and `--mode fallback` test
+rejected actions. Fixture responses are not model-performance or training evidence.
+
 ## Numeric training
 
 The persistent bridge uses the certified variant configuration and each

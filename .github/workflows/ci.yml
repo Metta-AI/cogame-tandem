@@ -151,8 +151,11 @@ jobs:
 
       - name: Train bridge episodes
         run: |
-          nim c -d:release --hints:off --path:src -o:/tmp/tandem-train-bridge tools/train_bridge.nim
+          nim c -d:release --parallelBuild:1 --hints:off --path:src -o:/tmp/tandem-train-bridge tools/train_bridge.nim
           python3 tools/test_train_bridge.py /tmp/tandem-train-bridge
+          python3 tools/test_prompt_games.py /tmp/tandem-train-bridge
+          nim c -d:release --parallelBuild:1 --hints:off --path:src -o:/tmp/tandem-posttrain tools/export_posttrain.nim
+          PYTHONDONTWRITEBYTECODE=1 python3 tools/test_source_prompts.py /tmp/tandem-posttrain /tmp/tandem-source-panel
 
   # ---------------------------------------------------------------------
   # Packaging smoke: the production image builds, and one real episode runs

@@ -152,6 +152,12 @@ def main() -> None:
             receipts = {e["turn"]: e for e in events if e["event_type"] == "receipt"}
             for row in (r for r in decisions if r["seat"] == seat):
                 assert replay_orders[(row["turn"], seat)]["q"] == row["q"]
+                q = row["q"]
+                action = row["executed_action"]
+                assert action["drive"] == [q[0] / 4096, q[1] / 4096]
+                assert [action[key] for key in ("effort", "yield", "twist", "brace")] == [
+                    value / 255 for value in q[2:]
+                ]
                 assert receipts[row["turn"]]["executed_action"] == row["executed_action"]
                 assert len(row["attempts"]) == (1 if args.mode == "accepted" else 2)
                 assert row["prompt_configuration"] == {
@@ -167,6 +173,9 @@ def main() -> None:
                     expected = requests[call_id]
                     assert expected["seat"] == seat and expected["body"] == request["request"]
                     assert expected["raw"] == response["raw_response"] and response["http_status"] == 200
+                    submitted = json.loads(attempt["raw_response"])
+                    assert submitted["attempt_id"] == identity
+                    assert submitted["action"] == json.loads(json.loads(response["raw_response"])["content"][0]["text"])
                     system, user = [m["content"] for m in request["prompt"]]
                     assert system == selection.system() and system == expected["body"]["system"]
                     assert request["prompt_configuration"] == selection.metadata(system, user)

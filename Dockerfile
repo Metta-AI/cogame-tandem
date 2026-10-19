@@ -41,8 +41,8 @@ RUN rm -f nim.cfg && \
   echo '--path:"src"' >> nim.cfg && cat nim.cfg
 
 ARG NimFlags="-d:release -d:useMalloc --opt:speed --stackTrace:on --threads:on --mm:orc"
-RUN nim c $NimFlags --nimcache:/tmp/tandem-nimcache --out:tandem src/tandem.nim && \
-    nim c $NimFlags --nimcache:/tmp/tandem-player-nimcache \
+RUN nim c $NimFlags --parallelBuild:1 --nimcache:/tmp/tandem-nimcache --out:tandem src/tandem.nim && \
+    nim c $NimFlags --parallelBuild:1 --nimcache:/tmp/tandem-player-nimcache \
       --out:tandem-player src/tandem_player.nim
 
 # Run Docker.
