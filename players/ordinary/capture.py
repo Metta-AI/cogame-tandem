@@ -11,6 +11,13 @@ from pathlib import Path
 from urllib.parse import unquote, urlsplit
 
 
+def append_evidence(record: dict) -> None:
+    destination = os.environ.get("TANDEM_PLAYER_TRACE_PATH", "")
+    if destination:
+        with Path(destination).open("a", encoding="utf-8") as stream:
+            stream.write(json.dumps(record, ensure_ascii=False) + "\n")
+
+
 class Capture:
     def __init__(self, slot: int, backend: str) -> None:
         self.slot = slot
@@ -19,9 +26,7 @@ class Capture:
         self.upload_url = os.environ["COWORLD_PLAYER_ARTIFACT_UPLOAD_URL"]
         self.rows: list[dict] = []
 
-    def record(
-        self, system: str, user: str, action: dict, source: str, tick: int
-    ) -> None:
+    def record(self, system: str, user: str, action: dict, source: str, tick: int) -> None:
         self.rows.append(
             {
                 "decision_id": len(self.rows),
@@ -31,9 +36,7 @@ class Capture:
                     {"role": "system", "content": system},
                     {"role": "user", "content": user},
                 ],
-                "completion": [
-                    {"role": "assistant", "content": json.dumps(action, sort_keys=True)}
-                ],
+                "completion": [{"role": "assistant", "content": json.dumps(action, sort_keys=True)}],
             }
         )
 

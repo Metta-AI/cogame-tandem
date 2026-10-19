@@ -31,11 +31,24 @@ class NativeLlmTest(unittest.TestCase):
         thread = Thread(target=server.serve_forever, daemon=True)
         thread.start()
         try:
-            with patch.dict(os.environ, {
-                "COWORLD_LLM_ENDPOINT": f"http://127.0.0.1:{server.server_port}",
-                "COWORLD_LLM_MODEL": "anthropic/claude-sonnet-4.6",
-            }, clear=True):
-                action, source, _, _ = choose({"view": VIEW, "prompt_configuration": {"promptVariant": "canonical", "promptSeed": 0}}, None, "carry carefully")
+            with patch.dict(
+                os.environ,
+                {
+                    "COWORLD_LLM_ENDPOINT": f"http://127.0.0.1:{server.server_port}",
+                    "COWORLD_LLM_MODEL": "anthropic/claude-sonnet-4.6",
+                },
+                clear=True,
+            ):
+                action, source, _, _ = choose(
+                    {
+                        "view": VIEW,
+                        "turn": 3,
+                        "attempt_id": "3-0-1",
+                        "prompt_configuration": {"promptVariant": "canonical", "promptSeed": 0},
+                    },
+                    None,
+                    "carry carefully",
+                )
                 self.assertEqual(action, default_order(VIEW))
                 self.assertEqual(source, "llm")
         finally:

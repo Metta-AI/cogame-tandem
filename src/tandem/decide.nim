@@ -25,6 +25,7 @@ type
   BatchCall* = object
     seat*: int
     turn*: int
+    attempt*: int
     system*, user*: string
 
   BatchReply* = object
@@ -56,6 +57,8 @@ type
     hasBatched*: bool
     records*: seq[string]      ## the replay chat records this turn produced.
     externalAccepted*: array[Seat, bool]
+    attempts*: array[Seat, JsonNode]
+    selectedAttempt*: array[Seat, string]
 
 # --------------------------------------------------------------------------
 # The per-seat view
@@ -254,6 +257,9 @@ proc turn*(
   ## integers.
   engine.records.setLen(0)
   engine.externalAccepted = [false, false]
+  for seat in Seat:
+    engine.attempts[seat] = newJArray()
+    engine.selectedAttempt[seat] = ""
   let
     deadline = getMonoTime() + initDuration(
       milliseconds = max(1, sim.config.turnBudgetMs))
@@ -318,6 +324,7 @@ proc turn*(
     engine.lastBatchAt = started
     engine.hasBatched = true
     var replies: seq[BatchReply]
+    for call in calls.mitems: call.attempt = attempt
     try:
       # The socket transport takes whole seconds. Round down so the first
       # attempt cannot consume the retry budget.
@@ -348,6 +355,9 @@ proc turn*(
                 payload["turn"].getInt() != turnIndex:
               raise newException(TandemError,
                 "external decision differs from the pending turn")
+            if payload.hasKey("attempt_id") and
+                payload["attempt_id"].getStr() != $turnIndex & "-" & $ord(seat) & "-" & $attempt:
+              raise newException(TandemError, "external decision differs from the pending attempt")
             payload = payload["action"]
           let parsed = parseOrder(payload, engine.previous[seat],
             engine.hasPrevious[seat], sim.porterOrder(seat, turnIndex),
@@ -357,6 +367,7 @@ proc turn*(
             if engine.policies[seat].kind == pkExternal:
               resolved[seat].source = osExternal
               engine.externalAccepted[seat] = true
+              engine.selectedAttempt[seat] = $turnIndex & "-" & $ord(seat) & "-" & $attempt
             resolved[seat].latencyMs = latency
             settled[seat] = true
           else:
@@ -365,6 +376,10 @@ proc turn*(
         except CatchableError as failure:
           cause = "parse_error"
           detail = failure.msg
+      engine.attempts[seat].add(%*{
+        "attempt_id": $turnIndex & "-" & $ord(seat) & "-" & $attempt,
+        "transport_ok": reply.ok, "raw_response": reply.text,
+        "accepted": cause.len == 0, "failure": cause, "detail": detail})
       if cause.len > 0:
         engine.addRecord(%*{
           "k": "fallback", "turn": turnIndex, "seat": ord(seat),

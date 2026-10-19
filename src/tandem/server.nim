@@ -41,7 +41,7 @@ import
   bitworld/runtime,
   bitworld/spriteprotocol,
   mummy,
-  sim, roster, control, orders, decide, prompts,
+  sim, roster, control, orders, decide, prompts, evidence,
   global, broadcast, replays, replay_runtime, events, wire_constants
 
 when defined(posix):
@@ -478,6 +478,11 @@ proc runServerLoop*(
   let wording = promptSelection(
     if runtimeConfig.config.len > 0: parseJson(runtimeConfig.config)
     else: newJObject())
+  let hostTrace = getEnv("TANDEM_HOST_TRACE_PATH")
+  if hostTrace.len > 0:
+    writePrivate(hostTrace, $(%*{"event_type": "host_episode_start",
+      "source_revision": getEnv("TANDEM_SOURCE_REVISION"),
+      "prompt_configuration": selectionMetadata(wording)}) & "\n")
   # The wall-clock budget starts HERE, before the board bake and before the
   # listener opens, so every second the process spends is charged against the
   # 660 s engine stop (`wallClockBudgetSeconds`) and the 720 s settle
@@ -573,6 +578,7 @@ proc runServerLoop*(
         if found:
           socket.send($(%*{
             "type": "turn", "turn": call.turn,
+            "attempt_id": $call.turn & "-" & $call.seat & "-" & $call.attempt,
             "prompt_configuration": {"promptVariant": $wording.variant, "promptSeed": wording.seed},
             "view": parseJson(call.user)
           }), TextMessage)
@@ -636,6 +642,8 @@ proc runServerLoop*(
     ## promises best-effort artifacts before re-raising.
     if not replayLoaded:
       let results = parseJson(sim.playerResultsJson())
+      if hostTrace.len > 0:
+        appendPrivate(hostTrace, %*{"event_type": "host_episode_end", "results": results})
       var externalSockets: seq[WebSocket]
       {.gcsafe.}:
         withLock appState.lock:
@@ -824,6 +832,8 @@ proc runServerLoop*(
             if opening or elapsedTicks mod sim.turnTicks() == 0:
               let seconds = int((getMonoTime() - episodeStart).inSeconds)
               let turnIndex = elapsedTicks div sim.turnTicks()
+              var views: array[Seat, JsonNode]
+              for seat in Seat: views[seat] = engine.seatViewJson(sim, seat, turnIndex)
               engine.turn(sim, turnIndex, seconds)
               # The records are the ONE source: writing them into the replay
               # AND folding them back through `applyRecord` is what installs
@@ -832,6 +842,17 @@ proc runServerLoop*(
               for record in engine.records:
                 recordAndWrite(record)
               for seat in Seat:
+                let installed = sim.activeOrder[ord(seat)]
+                engine.previous[seat] = installed
+                if hostTrace.len > 0:
+                  appendPrivate(hostTrace, %*{"event_type": "host_decision",
+                    "turn": turnIndex, "seat": ord(seat), "observation": views[seat],
+                    "prompt_configuration": selectionMetadata(wording),
+                    "attempts": engine.attempts[seat], "selected_attempt_id": engine.selectedAttempt[seat],
+                    "accepted": engine.externalAccepted[seat], "action_origin": $installed.source,
+                    "executed_action": orderReplyJson(installed),
+                    "q": [installed.driveX, installed.driveY, installed.effort,
+                      installed.yieldQ, installed.twist, installed.brace]})
                 if engine.policies[seat].kind == pkExternal:
                   for i in 0 ..< sockets.len:
                     if playerIndices[i] >= 0 and
@@ -839,7 +860,9 @@ proc runServerLoop*(
                         sim.players[playerIndices[i]].seat == seat:
                       sockets[i].send($(%*{
                         "type": "decision_result", "turn": turnIndex,
-                        "accepted": engine.externalAccepted[seat]
+                        "accepted": engine.externalAccepted[seat],
+                        "selected_attempt_id": engine.selectedAttempt[seat],
+                        "executed_action": orderReplyJson(installed)
                       }), TextMessage)
           # EDIT 1: the seats send no inputs; the control layer compiles both
           # force vectors from the recorded orders. The mask frame is still

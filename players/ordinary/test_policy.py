@@ -11,15 +11,15 @@ from unittest.mock import patch
 from player import choose
 from policy import default_order
 
-
 VIEW = {
     "turn": 3,
     "you": {"alias": "Cobalt"},
     "partner": {"alias": "Rust"},
     "couch": {"pos": [0.0, 0.0], "angle_deg": 0.0},
-    "route": {"next_doorways": [{"centre": [2.0, 0.0],
-                                   "through_deg": 0.0, "dist_m": 2.0}],
-              "goal": {"centre": [10.0, 1.0]}},
+    "route": {
+        "next_doorways": [{"centre": [2.0, 0.0], "through_deg": 0.0, "dist_m": 2.0}],
+        "goal": {"centre": [10.0, 1.0]},
+    },
 }
 
 
@@ -33,9 +33,22 @@ class PlayerPolicyTest(unittest.TestCase):
     def test_prompt_policy_calls_anthropic_from_player(self) -> None:
         answer = {"content": [{"text": json.dumps(default_order(VIEW))}]}
         response = io.BytesIO(json.dumps(answer).encode())
-        with patch.dict(os.environ, {"ANTHROPIC_API_KEY": "test"}, clear=True), \
-                patch("urllib.request.urlopen", return_value=response) as urlopen:
-            action, source, _, user = choose({"view": VIEW, "prompt_configuration": {"promptVariant": "canonical", "promptSeed": 0}}, None, "carry carefully")
+        response.status = 200
+        response.headers = {}
+        with (
+            patch.dict(os.environ, {"ANTHROPIC_API_KEY": "test"}, clear=True),
+            patch("urllib.request.urlopen", return_value=response) as urlopen,
+        ):
+            action, source, _, user = choose(
+                {
+                    "view": VIEW,
+                    "turn": 3,
+                    "attempt_id": "3-0-1",
+                    "prompt_configuration": {"promptVariant": "canonical", "promptSeed": 0},
+                },
+                None,
+                "carry carefully",
+            )
         self.assertEqual(source, "llm")
         self.assertEqual(action, default_order(VIEW))
         self.assertIn("carry carefully", user)
