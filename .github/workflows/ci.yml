@@ -157,6 +157,15 @@ jobs:
           nim c -d:release --parallelBuild:1 --hints:off --path:src -o:/tmp/tandem-posttrain tools/export_posttrain.nim
           PYTHONDONTWRITEBYTECODE=1 python3 tools/test_source_prompts.py /tmp/tandem-posttrain /tmp/tandem-source-panel
 
+      - name: Native player HTTP and installed-order evidence
+        run: |
+          python3 -m pip install -r players/ordinary/requirements.txt
+          nim c -d:release --parallelBuild:1 --hints:off --path:src -o:/tmp/tandem-native src/tandem.nim
+          for mode in accepted retry fallback; do
+            PYTHONDONTWRITEBYTECODE=1 python3 tools/test_native_prompts.py \
+              /tmp/tandem-native "/tmp/tandem-native-${mode}" --wording mixed --mode "$mode"
+          done
+
   # ---------------------------------------------------------------------
   # Packaging smoke: the production image builds, and one real episode runs
   # end to end in raw docker with the certification fixture's seat mix.
