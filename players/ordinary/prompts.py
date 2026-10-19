@@ -18,7 +18,8 @@ class PromptVariant(StrEnum):
     MIXED = "mixed"
 
 
-BANK_VERSION = "tandem-rules-v1"
+BANK_VERSION = "tandem-rules-v2"
+BANK = json.loads(Path(__file__).with_name("prompt_bank.json").read_text())
 TRAINING_VARIANTS = tuple(PromptVariant)[:5]
 INTRODUCTIONS = json.loads(Path(__file__).with_name("prompt_introductions.json").read_text())
 CANONICAL_SYSTEM = Path(__file__).with_name("system_prompt.txt").read_text()
@@ -43,12 +44,17 @@ class PromptSelection:
     def selected(self) -> PromptVariant:
         return TRAINING_VARIANTS[self.seed % 5] if self.variant == PromptVariant.MIXED else self.variant
 
-    def system(self) -> str:
-        return INTRODUCTIONS[self.selected] + "\n" + CANONICAL_SYSTEM.partition("\n")[2]
+    def system(self, bank: str = BANK_VERSION) -> str:
+        if bank == "tandem-rules-v1":
+            # Stored trajectories retain their original game-owned wording.
+            return INTRODUCTIONS[self.selected] + "\n" + CANONICAL_SYSTEM.partition("\n")[2]
+        if bank != BANK_VERSION:
+            raise ValueError(f"unknown prompt bank: {bank}")
+        return BANK["rules"][self.selected] + BANK["scoring"] + BANK["response"]
 
-    def metadata(self, system: str, user: str) -> dict:
+    def metadata(self, system: str, user: str, bank: str = BANK_VERSION) -> dict:
         return {
-            "bank": BANK_VERSION,
+            "bank": bank,
             "variant": self.selected.value,
             "selection": self.variant.value,
             "seed": self.seed,

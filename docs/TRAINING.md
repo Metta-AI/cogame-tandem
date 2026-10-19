@@ -24,25 +24,32 @@ python3 players/ordinary/export.py /tmp/tandem-dataset \
 
 The exporter splits whole seeds into train and validation, rejects deadline
 and fault endings, and checks the source revision and game scores. Output
-uses `tandem-carry-v1`. Current artifacts include prompt provenance and the
-host-receipted installed action. Older canonical artifacts retain their proposal
-format. The reader preserves those archives and rejects held-out wording or
-inconsistent prompt provenance. Player artifacts alone omit rejected attempts and
-do not qualify complete native training evidence; use the private host and HTTP
-traces for reviewed ingestion. The native scripted exporter produces private,
-review-gated trajectory candidates instead:
+uses `tandem-carry-v1`, matching the native exporter:
 
 ```sh
 nim c -d:release --path:src -o:/tmp/tandem-posttrain tools/export_posttrain.nim
 /tmp/tandem-posttrain /tmp/tandem-data 10 1 default
 ```
 
-The other certified variant is `sprint`. See [prompt selection and candidate
-review](../TRAINING.md) for the native exporter and text bridge. The following
-command applies only to previously prepared, reviewed training datasets:
+The other certified variant is `sprint`. Both methods emit Metta post-training
+JSONL with player-constructed prompts and complete accepted actions. From a Metta
+checkout with the post-training package installed:
 
 ```sh
 uv run --package metta-posttrain --extra train python -m metta_posttrain.train \
   --dataset /tmp/tandem-dataset --output /tmp/tandem-adapter \
   --model Qwen/Qwen3-0.6B --max-steps 100 --max-length 4096
 ```
+
+## Prompt selection and stored artifacts
+
+The game sends episode-stable `promptVariant` and `promptSeed` settings to the
+ordinary player. The player and native bridge consume the same complete v2
+bank. Deploy both game and ordinary player changes together.
+
+Accepted-decision artifacts record exact message hashes. Export rejects held-out
+wording and validates each stored bank against its original text. Original v1
+artifacts remain readable, including canonical artifacts without prompt metadata.
+Current v2 prompts correct the score description; stored messages are never rewritten.
+
+See [prompt diversity](../TRAINING.md) for selection, exports, and evaluation.

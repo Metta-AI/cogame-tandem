@@ -1,81 +1,40 @@
-# Metta post-training data
+# Tandem prompt diversity and training
 
-The native simulator and published `porter` and `mule` policies export
-private trajectory candidates for both certified Tandem variants:
+The game and ordinary Python player share `players/ordinary/prompt_bank.json`.
+The v2 bank varies force composition, privacy, timing, geometry, and damage
+explanations. The response schema and strategic guidance remain fixed.
+It states the actual delivery/non-delivery score formulas, correcting the
+original vague claim that score comes half from time and half from condition.
 
-```sh
-nimby sync nimby.lock
-for variant in default sprint; do
-  nim r -d:release --parallelBuild:1 --path:src tools/export_posttrain.nim \
-    "/tmp/tandem-${variant}" 10 1 "$variant" mixed 17
-done
-```
+Training presentations are `canonical`, `plain`, `numbered`, `questions`, and
+`reordered`. `mixed` requires a nonnegative `promptSeed` and selects one of those
+five once per episode, independently of course generation.
+`heldout-briefing` and `heldout-reference` are evaluation-only; training exporters
+reject them and bridge resets require `split: "validation"` or `split: "test"`.
 
-Each run reads the variant configuration from the Coworld manifest, adds the
-per-seat tokens supplied by the hosted platform, and plays complete seeded
-carries through the production order-record and control paths. At each
-simultaneous turn, it records the seat's hosted system and user prompts and a
-continuous order accepted by the game's reply parser. The parsed order drives
-the simulation. `porter` controls Cobalt and `mule` controls Rust. Whole
-carries share a seed family across wording and game variants. The shared Coworld
-importer owns split assignment and review before training. The exporter requires
-a clean source commit and writes private `trajectories.jsonl` and `manifest.json`
-files. It records teacher origin, normalized installed actions, complete outcomes,
-source revision, and exact prompt hashes. Existing outputs are never overwritten.
-
-The previous direct exporter yielded 800 training and 200 validation examples for
-Default, and 480 and 120 for Sprint. All 1,600 examples fit the
-Qwen2.5-0.5B-Instruct tokenizer in 4,096 tokens; the maximum was 1,555.
-These examples distill scripted teachers; they do not establish stronger
-league play.
-One CPU optimizer step per variant with a local tiny model included every
-example and reduced heldout loss, verifying the Metta post-training path.
-
-## Prompt selection
-
-`promptVariant` accepts `canonical`, `plain`, `numbered`, `questions`, `reordered`,
-`heldout-briefing`, `heldout-reference`, or `mixed`. The canonical default preserves
-the original prompt exactly. Only its introduction changes; rules, action schema,
-operator instructions, private views, and timing budgets stay fixed.
-
-`mixed` requires an explicit nonnegative integer `promptSeed`, independent of the
-course seed. Its remainder modulo five selects a training wording for the whole
-episode. Both held-out wordings are evaluation-only. The ordinary Python player
-and Nim tooling read the same introduction bank.
-
-Append `text` to the bridge command to submit native continuous orders. Reset
-accepts `promptVariant`, `promptSeed`, and `split` (`train`, `validation`, or `test`).
-The text bridge records prompt provenance and rejects held-out wording for training.
-Both actions are collected before installation, preserving simultaneous private views.
+## Complete-game collection
 
 ```sh
+nim c -d:release --parallelBuild:1 --path:src -o:/tmp/tandem-train-bridge tools/train_bridge.nim
 python3 tools/test_prompt_games.py /tmp/tandem-train-bridge
-python3 tools/test_source_prompts.py /tmp/tandem-posttrain /tmp/tandem-source-panel
+nim r --path:src tools/export_posttrain.nim /tmp/tandem-data 10 1 default mixed 0
 ```
 
-These checks establish semantic preservation and provenance. They do not measure
-whether prompt diversity improves learning stability or held-out model performance.
+Use `sprint` for the other certified variant. Exports contain `train.jsonl`,
+`validation.jsonl`, and `manifest.json`. Every fifth seed belongs to validation.
+Mixed wording cycles separately within each split. Scenario families group the
+same course seed across variants, and rows retain exact message hashes.
+Both source views are frozen before orders are installed. Existing output
+directories are rejected. Teacher orders use the native parser and simulator.
 
-## Native evidence
+Ordinary players retain their original accepted-decision artifacts. The reader
+preserves v1 wording and verifies stored messages without rewriting them;
+new episodes use v2. See [ordinary collection](docs/TRAINING.md).
 
-Set `TANDEM_HOST_TRACE_PATH` and `TANDEM_SOURCE_REVISION` on the host. Give each
-ordinary player a separate `TANDEM_PLAYER_TRACE_PATH` and the same source revision.
-These optional files use exclusive creation and mode 0600. Keep them private:
-player traces include operator instructions and exact HTTP bodies.
-
-Turn frames carry `attempt_id` and `prompt_configuration`. Ordinary players echo
-the attempt identifier; receipts contain the selected attempt and installed action.
-Each retry requests a fresh completion. Host traces record pre-turn views, accepted
-and rejected attempts, installed actions, exact quantized controls, and final results.
-These fields do not enter spectator replay configuration or simulation state.
-
-```sh
-python3 tools/test_native_prompts.py /tmp/tandem /tmp/tandem-native --wording mixed
-```
-
-The native harness runs both ordinary Python players against a local HTTP fixture
-under the published game configuration. `--mode retry` and `--mode fallback` test
-rejected actions. Fixture responses are not model-performance or training evidence.
+Complete-game comparisons establish mechanics and provenance, not learned
+robustness. Learning comparisons must match game seeds, policies, and inference
+settings, report failures and fallbacks, and reserve held-out wording until
+training choices are frozen.
 
 ## Numeric training
 

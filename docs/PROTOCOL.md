@@ -44,13 +44,10 @@ wrapped in `try/except CatchableError` and exits 0 on a dead socket. A seat that
 never registers plays the game's `porter` fallback.
 
 An ordinary policy receives private text frames on the same authenticated
-player socket. Each `turn` frame has the turn index, private `view`,
-`attempt_id`, and episode-stable `prompt_configuration`. The
+player socket. Each `turn` frame has the turn index, private `view`, and episode-stable `prompt_configuration`. The
 player constructs its own prompt and complete carry order, then replies
-with `{"type":"decision","turn":N,"attempt_id":"...","action":{...}}`.
-Retries receive a new attempt identifier and request a fresh completion.
-The game sends a `decision_result` receipt with `accepted`,
-`selected_attempt_id`, and the installed `executed_action` after recording it, and
+with `{"type":"decision","turn":N,"action":{...}}`. The game sends a
+`decision_result` acceptance receipt after the action enters the replay and
 ends with a `final` frame containing scores, reason, and end rule. The normal
 binary board frames and Ready packet continue. Sprite input masks remain zero.
 The server computes both force vectors from recorded orders.

@@ -13,13 +13,6 @@ from urllib.parse import unquote, urlsplit
 from prompts import PromptSelection
 
 
-def append_evidence(record: dict) -> None:
-    destination = os.environ.get("TANDEM_PLAYER_TRACE_PATH", "")
-    if destination:
-        with Path(destination).open("a", encoding="utf-8") as stream:
-            stream.write(json.dumps(record, ensure_ascii=False) + "\n")
-
-
 class Capture:
     def __init__(self, slot: int, backend: str) -> None:
         self.slot = slot

@@ -53,10 +53,11 @@ def export(
                 raise ValueError(f"invalid training artifact {artifact}")
             for row in trajectory["decisions"]:
                 system, user = [message["content"] for message in row["prompt"]]
-                if system != selection.system():
+                bank = row["prompt_template"]["bank"] if "prompt_template" in row else "tandem-rules-v1"
+                if system != selection.system(bank):
                     raise ValueError("artifact wording differs from episode configuration")
                 if "prompt_template" in row:
-                    if row["prompt_template"] != selection.metadata(system, user):
+                    if row["prompt_template"] != selection.metadata(system, user, bank):
                         raise ValueError("artifact prompt provenance differs")
                 elif selection.selected != PromptVariant.CANONICAL:
                     raise ValueError("noncanonical artifacts require prompt provenance")
@@ -66,6 +67,8 @@ def export(
                     "episode_id": f"tandem-{seed}-seat-{slot}",
                     "seed": f"tandem-{seed}",
                     "decision_id": row["decision_id"],
+                    "scenario_family": f"tandem-{seed}",
+                    "prompt_template": selection.metadata(system, user, bank),
                     "prompt": row["prompt"],
                     "completion": row["completion"],
                     "game": "tandem",

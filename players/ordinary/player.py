@@ -10,9 +10,9 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
 import websocket
-from capture import Capture, append_evidence
-from policy import default_order, prompt_for
+from capture import Capture
 from prompts import PromptSelection
+from policy import default_order, prompt_for
 
 
 def choose(turn: dict, generator, strategy: str) -> tuple[dict, str, str, str]:
@@ -50,40 +50,13 @@ def choose(turn: dict, generator, strategy: str) -> tuple[dict, str, str, str]:
             },
             method="POST",
         )
-        append_evidence(
-            {
-                "event_type": "request",
-                "attempt_id": turn["attempt_id"],
-                "turn": turn["turn"],
-                "prompt_configuration": selection.metadata(system, user),
-                "prompt": [{"role": "system", "content": system}, {"role": "user", "content": user}],
-                "request": json.loads(body),
-            }
-        )
         with urllib.request.urlopen(request, timeout=6) as response:
-            raw_response = response.read().decode("utf-8")
-            append_evidence(
-                {
-                    "event_type": "response",
-                    "attempt_id": turn["attempt_id"],
-                    "http_status": response.status,
-                    "response_headers": dict(response.headers.items()),
-                    "raw_response": raw_response,
-                }
-            )
-            action = json.loads(json.loads(raw_response)["content"][0]["text"])
+            action = json.loads(json.load(response)["content"][0]["text"])
         return action, "llm", system, user
     return default_order(view), "heuristic", system, user
 
 
 def main() -> None:
-    trace = os.environ.get("TANDEM_PLAYER_TRACE_PATH", "")
-    if trace:
-        with os.fdopen(os.open(trace, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), "w") as stream:
-            stream.write(
-                json.dumps({"event_type": "player_start", "source_revision": os.environ["TANDEM_SOURCE_REVISION"]})
-                + "\n"
-            )
     url = os.environ["COWORLD_PLAYER_WS_URL"]
     slot = int(parse_qs(urlsplit(url).query)["slot"][0])
     adapter = os.environ.get("TANDEM_ADAPTER_DIR")
@@ -139,24 +112,12 @@ def main() -> None:
                 source,
                 PromptSelection.from_config(frame["prompt_configuration"]),
             )
-            socket.send(
-                json.dumps(
-                    {
-                        "type": "decision",
-                        "turn": frame["turn"],
-                        "attempt_id": frame["attempt_id"],
-                        "action": action,
-                        "source": source,
-                    }
-                )
-            )
+            socket.send(json.dumps({"type": "decision", "turn": frame["turn"], "action": action, "source": source}))
         elif kind == "decision_result":
-            append_evidence({"event_type": "receipt", **frame})
             system, user, action, source, selection = pending.pop(frame["turn"])
             if artifact and frame["accepted"]:
-                artifact.record(system, user, frame["executed_action"], source, frame["turn"], selection)
+                artifact.record(system, user, action, source, frame["turn"], selection)
         elif kind == "final":
-            append_evidence({"event_type": "final", **frame})
             if pending:
                 raise RuntimeError("Tandem ended with unacknowledged decisions")
             if artifact:

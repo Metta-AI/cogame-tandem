@@ -2,7 +2,7 @@
 ## nim c -d:release --path:src -o:tandem-train-bridge tools/train_bridge.nim
 
 import std/[json, math, os]
-import tandem/[baselines, broadcast, control, decide, orders, roster, sim, prompts, evidence]
+import tandem/[baselines, broadcast, control, decide, orders, roster, sim, prompts]
 
 const
   OperatorPrompt = "Coordinate through the couch's motion and your own strain to deliver it quickly with little damage."

@@ -1,5 +1,6 @@
 ## Game-owned wording selection. Kept outside simulation/replay configuration.
 import std/[json, strutils]
+import crunchy
 
 type
   PromptVariant* = enum
@@ -16,9 +17,8 @@ type
     seed*: int
 
 const
-  PromptBankVersion* = "tandem-rules-v1"
-  CanonicalSystemPrompt* = staticRead("../../players/ordinary/system_prompt.txt")
-  Introductions = staticRead("../../players/ordinary/prompt_introductions.json")
+  PromptBankVersion* = "tandem-rules-v2"
+  PromptBank = staticRead("../../players/ordinary/prompt_bank.json")
 
 proc promptSelection*(node: JsonNode): PromptSelection =
   if node.kind != JObject:
@@ -45,5 +45,11 @@ proc selectionMetadata*(selection: PromptSelection): JsonNode =
     "selection": $selection.variant, "seed": selection.seed}
 
 proc systemPrompt*(selection: PromptSelection): string =
-  let introduction = parseJson(Introductions)[$selection.selectedVariant].getStr()
-  introduction & "\n" & CanonicalSystemPrompt[CanonicalSystemPrompt.find('\n') + 1 .. ^1]
+  let bank = parseJson(PromptBank)
+  bank["rules"][$selection.selectedVariant].getStr() &
+    bank["scoring"].getStr() & bank["response"].getStr()
+
+proc promptMetadata*(selection: PromptSelection, system, user: string): JsonNode =
+  result = selection.selectionMetadata()
+  result["system_sha256"] = %sha256(system).toHex
+  result["user_sha256"] = %sha256(user).toHex
