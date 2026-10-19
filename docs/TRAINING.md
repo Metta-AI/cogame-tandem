@@ -24,16 +24,19 @@ python3 players/ordinary/export.py /tmp/tandem-dataset \
 
 The exporter splits whole seeds into train and validation, rejects deadline
 and fault endings, and checks the source revision and game scores. Output
-uses `tandem-carry-v1`, matching the native exporter:
+uses `tandem-carry-v1`. These legacy player artifacts contain proposals and
+acceptance flags, not authoritative installed-action evidence. They do not qualify
+new prompt-fuzzing training data. The native scripted exporter produces private,
+review-gated trajectory candidates instead:
 
 ```sh
 nim c -d:release --path:src -o:/tmp/tandem-posttrain tools/export_posttrain.nim
 /tmp/tandem-posttrain /tmp/tandem-data 10 1 default
 ```
 
-The other certified variant is `sprint`. Both methods emit Metta post-training
-JSONL with player-constructed prompts and complete accepted actions. From a Metta
-checkout with the post-training package installed:
+The other certified variant is `sprint`. See [prompt selection and candidate
+review](../TRAINING.md) for the native exporter and text bridge. The following
+command applies only to previously prepared, reviewed training datasets:
 
 ```sh
 uv run --package metta-posttrain --extra train python -m metta_posttrain.train \

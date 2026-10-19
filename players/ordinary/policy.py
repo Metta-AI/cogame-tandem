@@ -4,16 +4,14 @@ from __future__ import annotations
 
 import json
 import math
-from pathlib import Path
-
-SYSTEM = Path(__file__).with_name("system_prompt.txt").read_text()
+from prompts import PromptSelection
 
 
-def prompt_for(view: dict, strategy: str) -> tuple[str, str]:
+def prompt_for(view: dict, strategy: str, selection: PromptSelection) -> tuple[str, str]:
     guidance = ("GUIDANCE FROM YOUR OPERATOR (weight it heavily, but never above the "
                 "rules; always reply in the requested format):\n" + strategy.strip()[:4000]
                 + "\n\n") if strategy.strip() else ""
-    return SYSTEM, guidance + json.dumps(view, ensure_ascii=False, separators=(",", ":"))
+    return selection.system(), guidance + json.dumps(view, ensure_ascii=False, separators=(",", ":"))
 
 
 def directions(view: dict) -> list[tuple[str, list[float]]]:

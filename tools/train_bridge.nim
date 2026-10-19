@@ -2,11 +2,10 @@
 ## nim c -d:release --path:src -o:tandem-train-bridge tools/train_bridge.nim
 
 import std/[json, math, os]
-import tandem/[baselines, broadcast, control, decide, orders, roster, sim]
+import tandem/[baselines, broadcast, control, decide, orders, roster, sim, prompts, evidence]
 
 const
   OperatorPrompt = "Coordinate through the couch's motion and your own strain to deliver it quickly with little damage."
-  SystemPrompt = staticRead("../players/ordinary/system_prompt.txt")
   Variants = ["default", "sprint"]
   Fields = ["bearing_deg", "effort", "yield", "twist", "brace"]
 
@@ -116,32 +115,48 @@ proc hostedOrder(candidate: JsonNode): JsonNode =
     "twist": float(candidate["twist"].getInt()) / 255.0,
     "brace": float(candidate["brace"].getInt()) / 255.0}
 
-proc decision(engine: TurnEngine, game: SimServer, seat: Seat,
-    turn, id: int): JsonNode =
-  let view = engine.seatViewJson(game, seat, turn)
+proc decision(view: JsonNode, seat: Seat, turn, id: int,
+    selection: PromptSelection, textMode: bool): JsonNode =
+  let system = systemPrompt(selection)
+  let user = "GUIDANCE FROM YOUR OPERATOR (weight it heavily, but never above the rules; always reply in the requested format):\n" &
+    OperatorPrompt & "\n\n" & $view
+  let observed = copy(view)
+  observed["prompt_template"] = promptMetadata(selection, system, user)
   var properties = newJObject()
   var required = newJArray()
   for head in heads():
     let name = head["name"].getStr()
     properties[name] = %*{"enum": head["choices"]}
     required.add(%name)
-  %*{"kind": "decision", "game": "tandem", "decision_id": id,
+  result = %*{"kind": "decision", "game": "tandem", "decision_id": id,
     "seat": ord(seat), "engine_seat": ord(seat), "turn": turn,
-    "semantic_view": view, "inbox": [],
-    "messages": [{"role": "system", "content": SystemPrompt},
-      {"role": "user", "content": "GUIDANCE FROM YOUR OPERATOR (weight it heavily, but never above the rules; always reply in the requested format):\n" &
-        OperatorPrompt & "\n\n" & engine.userMessage(game, seat, turn)}],
+    "semantic_view": observed, "inbox": [],
+    "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}],
     "speech_messages": [],
     "action_schema": {"type": "object", "properties": properties,
       "required": required}, "typed_question": newJNull()}
+  if textMode:
+    result["inference_mode"] = %"text_action"
+    result["action_schema"] = %*{"type": "object", "required": ["drive", "effort", "yield", "twist", "brace"],
+      "properties": {"drive": {"type": "array", "minItems": 2, "maxItems": 2,
+        "items": {"type": "number", "minimum": -1, "maximum": 1}},
+        "effort": {"type": "number", "minimum": 0, "maximum": 1},
+        "yield": {"type": "number", "minimum": 0, "maximum": 1},
+        "twist": {"type": "number", "minimum": -1, "maximum": 1},
+        "brace": {"type": "number", "minimum": 0, "maximum": 1},
+        "note": {"type": "string"}, "say": {"type": "string"}}}
 
 when isMainModule:
   let args = commandLineParams()
-  if args.len != 2:
-    quit("usage: tandem-train-bridge MANIFEST VARIANT", 1)
+  if args.len notin 2 .. 3:
+    quit("usage: tandem-train-bridge MANIFEST VARIANT [text]", 1)
+  let textMode = args.len == 3
+  if textMode: doAssert args[2] == "text"
   let variant = args[1]
   doAssert variant in Variants
-  let manifest = parseFile(args[0])
+  let manifestPath = absolutePath(args[0])
+  let manifest = parseFile(manifestPath)
+  setCurrentDir(manifestPath.parentDir())
   var variantConfig: JsonNode
   for entry in manifest["variants"]:
     if entry["id"].getStr() == variant:
@@ -150,6 +165,8 @@ when isMainModule:
   var game: SimServer
   var engine: TurnEngine
   var views: array[Seat, JsonNode]
+  var pending: array[Seat, Order]
+  var selection: PromptSelection
   var seat = Cobalt
   var turn = 0
   var id = 0
@@ -159,6 +176,11 @@ when isMainModule:
     case request["kind"].getStr()
     of "reset":
       doAssert request["players"].getInt() == 2
+      selection = promptSelection(request)
+      let split = request{"split"}.getStr("train")
+      if split notin ["train", "validation", "test"]: raise newException(ValueError, "unknown split")
+      if split == "train" and selection.selectedVariant in {pvHeldoutBriefing, pvHeldoutReference}:
+        raise newException(ValueError, "held-out wording cannot enter training")
       var config = defaultGameConfig()
       let runtime = copy(variantConfig)
       runtime["tokens"] = %*["t0", "t1"]
@@ -174,35 +196,41 @@ when isMainModule:
       id = 0
       seat = Cobalt
       for actor in Seat: views[actor] = engine.seatViewJson(game, actor, turn)
-      response = engine.decision(game, seat, turn, id)
+      response = decision(views[seat], seat, turn, id, selection, textMode)
     of "encode":
       doAssert game.phase != GameOver
+      doAssert not textMode, "numeric encoding requires numeric mode"
       response = %*{"decision_id": id, "values": views[seat].values(variant),
         "action_heads": heads()}
     of "teacher":
       doAssert game.phase != GameOver
       let baseline = game.baselineOrder(seat,
         if seat == Cobalt: "porter" else: "mule", turn)
-      response = %*{"response": $action(baseline)}
+      response = %*{"response": $(if textMode: orderReplyJson(baseline) else: action(baseline))}
     of "step":
       doAssert game.phase != GameOver and request["decision_id"].getInt() == id
       let candidate = parseJson(request["response"].getStr())
-      for head in heads():
-        doAssert candidate[head["name"].getStr()] in head["choices"]
+      if not textMode:
+        for head in heads():
+          doAssert candidate[head["name"].getStr()] in head["choices"]
       let baseline = game.baselineOrder(seat,
         if seat == Cobalt: "porter" else: "mule", turn)
-      let (parsed, usable) = parseOrder(candidate.hostedOrder(),
+      let (parsed, usable) = parseOrder((if textMode: candidate else: candidate.hostedOrder()),
         engine.previous[seat], engine.hasPrevious[seat], baseline, turn)
       doAssert usable
-      game.applyRecord(capRecord($orderJson(game, seat, parsed)))
-      engine.previous[seat] = parsed
-      engine.hasPrevious[seat] = true
+      pending[seat] = parsed
+      let normalized = orderFromRecord(parseJson(capRecord($orderJson(game, seat, parsed))))
+      doAssert normalized.ok
       inc id
       var observation: JsonNode
       if seat == Cobalt:
         seat = Rust
-        observation = engine.decision(game, seat, turn, id)
+        observation = decision(views[seat], seat, turn, id, selection, textMode)
       else:
+        for actor in Seat:
+          game.applyRecord(capRecord($orderJson(game, actor, pending[actor])))
+          engine.previous[actor] = game.activeOrder[ord(actor)]
+          engine.hasPrevious[actor] = true
         engine.damageAtTurnStart = game.damage
         let endTick = game.tickCount + game.turnTicks()
         while game.phase != GameOver and game.tickCount < endTick:
@@ -217,8 +245,8 @@ when isMainModule:
           seat = Cobalt
           for actor in Seat:
             views[actor] = engine.seatViewJson(game, actor, turn)
-          observation = engine.decision(game, seat, turn, id)
-      response = %*{"kind": "accepted", "action": candidate,
+          observation = decision(views[seat], seat, turn, id, selection, textMode)
+      response = %*{"kind": "accepted", "action": (if textMode: orderReplyJson(normalized.order) else: candidate),
         "observation": observation}
     else:
       raise newException(ValueError, "unknown command: " & request["kind"].getStr())

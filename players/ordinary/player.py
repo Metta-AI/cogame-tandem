@@ -12,11 +12,13 @@ from urllib.parse import parse_qs, urlsplit
 import websocket
 from capture import Capture
 from policy import default_order, prompt_for
+from prompts import PromptSelection
 
 
 def choose(turn: dict, generator, strategy: str) -> tuple[dict, str, str, str]:
     view = turn["view"]
-    system, user = prompt_for(view, strategy)
+    selection = PromptSelection.from_config(turn["prompt_configuration"])
+    system, user = prompt_for(view, strategy, selection)
     if generator:
         completion = generator(
             [

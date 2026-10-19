@@ -35,7 +35,7 @@ class PlayerPolicyTest(unittest.TestCase):
         response = io.BytesIO(json.dumps(answer).encode())
         with patch.dict(os.environ, {"ANTHROPIC_API_KEY": "test"}, clear=True), \
                 patch("urllib.request.urlopen", return_value=response) as urlopen:
-            action, source, _, user = choose({"view": VIEW}, None, "carry carefully")
+            action, source, _, user = choose({"view": VIEW, "prompt_configuration": {"promptVariant": "canonical", "promptSeed": 0}}, None, "carry carefully")
         self.assertEqual(source, "llm")
         self.assertEqual(action, default_order(VIEW))
         self.assertIn("carry carefully", user)
