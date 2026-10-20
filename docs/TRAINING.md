@@ -32,14 +32,11 @@ nim c -d:release --path:src -o:/tmp/tandem-posttrain tools/export_posttrain.nim
 ```
 
 The other certified variant is `sprint`. Both methods emit Metta post-training
-JSONL with player-constructed prompts and complete accepted actions. From a Metta
-checkout with the post-training package installed:
+JSONL with player-constructed prompts and complete accepted actions. Use the [post-training research package](https://github.com/Metta-AI/posttraining-research/tree/main/packages/metta-posttraining)
+for current training and adapter-packaging workflows.
 
-```sh
-uv run --package metta-posttrain --extra train python -m metta_posttrain.train \
-  --dataset /tmp/tandem-dataset --output /tmp/tandem-adapter \
-  --model Qwen/Qwen3-0.6B --max-steps 100 --max-length 4096
-```
+Ordinary export IDs include the complete capture hash. Matched wording runs may
+share a scenario seed and remain in the same split; duplicate captures are rejected.
 
 ## Prompt selection and stored artifacts
 
