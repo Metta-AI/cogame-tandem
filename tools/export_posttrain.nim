@@ -84,7 +84,7 @@ when isMainModule:
             let user = "GUIDANCE FROM YOUR OPERATOR (weight it heavily, but never above the rules; always reply in the requested format):\n" & OperatorPrompt & "\n\n" & views[seat]
             rows.add($(%*{
               "episode_id": "tandem-" & variant & "-" & $seed & "-" &
-                $selection.selectedVariant & "-" & $selection.seed,
+                $selection.variant & "-" & $selection.selectedVariant & "-" & $selection.seed,
               "seed": "tandem-" & $seed,
               "scenario_family": "tandem-" & $seed,
               "prompt_template": promptMetadata(selection, system, user),
