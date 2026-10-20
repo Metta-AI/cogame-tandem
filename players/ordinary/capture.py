@@ -10,6 +10,8 @@ import zipfile
 from pathlib import Path
 from urllib.parse import unquote, urlsplit
 
+from prompts import PromptSelection
+
 
 class Capture:
     def __init__(self, slot: int, backend: str) -> None:
@@ -19,21 +21,18 @@ class Capture:
         self.upload_url = os.environ["COWORLD_PLAYER_ARTIFACT_UPLOAD_URL"]
         self.rows: list[dict] = []
 
-    def record(
-        self, system: str, user: str, action: dict, source: str, tick: int
-    ) -> None:
+    def record(self, system: str, user: str, action: dict, source: str, tick: int, selection: PromptSelection) -> None:
         self.rows.append(
             {
                 "decision_id": len(self.rows),
                 "tick": tick,
                 "source": source,
+                "prompt_template": selection.metadata(system, user),
                 "prompt": [
                     {"role": "system", "content": system},
                     {"role": "user", "content": user},
                 ],
-                "completion": [
-                    {"role": "assistant", "content": json.dumps(action, sort_keys=True)}
-                ],
+                "completion": [{"role": "assistant", "content": json.dumps(action, sort_keys=True)}],
             }
         )
 

@@ -125,7 +125,7 @@ proc docsAndProtocols() =
   let docs = m["game"]["docs"]
   doAssert docs["readme"]["type"].getStr() == "text"
   doAssert docs["readme"]["value"].getStr().len > 400
-  doAssert docs["pages"].len == 3
+  doAssert docs["pages"].len == 4
   var ids: seq[string] = @[]
   for page in docs["pages"]:
     ids.add(page["id"].getStr())
@@ -133,7 +133,7 @@ proc docsAndProtocols() =
     doAssert page["content"]["type"].getStr() == "text"
     doAssert page["content"]["value"].getStr().len > 400,
       "docs page " & page["id"].getStr() & " is empty"
-  doAssert ids == @["rules.md", "protocol.md", "carrying.md"]
+  doAssert ids == @["rules.md", "protocol.md", "carrying.md", "training.md"]
   report "game.docs and game.protocols are non-empty TEXT, both protocols"
 
 proc uploadContract() =

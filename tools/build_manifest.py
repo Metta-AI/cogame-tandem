@@ -42,11 +42,14 @@ server records a `register` replay record with policy label and kind, and
 drops any other chat text. Strategy prompts remain inside player containers.
 
 An ordinary policy uses the same authenticated socket. Every turn it receives
-a private JSON text frame with `type:turn`, `turn`, and `view`. It constructs
+a private JSON text frame with `type:turn`, `turn`, `view`, `attempt_id`, and
+`prompt_configuration`. It constructs
 its own prompt and action, then replies with
 `{"type":"decision","turn":N,"action":{...}}`. The game parses,
 quantizes, and records that action through the same replay path as every
-reply, then sends `{"type":"decision_result","turn":N,"accepted":true|false}`.
+reply, then sends `{"type":"decision_result","turn":N,"accepted":true|false}`
+with `selected_attempt_id` and `executed_action`. Ordinary players echo
+`attempt_id` in their decisions and request a fresh completion on retry.
 The final text frame carries the shared scores and end reason. The binary
 Sprite frames and Ready packet remain unchanged, and no seat receives the
 partner's private order.
@@ -101,6 +104,12 @@ CONFIG_SCHEMA = {
     "additionalProperties": False,
     "required": ["tokens", "players"],
     "properties": {
+        "promptVariant": {"type": "string", "default": "canonical",
+                          "enum": ["canonical", "plain", "numbered", "questions", "reordered",
+                                   "heldout-briefing", "heldout-reference", "mixed"],
+                          "description": "Episode-stable wording; held-out variants are evaluation-only."},
+        "promptSeed": {"type": "integer", "minimum": 0,
+                       "description": "Independent wording seed; required for mixed selection."},
         "tokens": {"type": "array", "minItems": 2, "maxItems": 2,
                    "items": {"type": "string"},
                    "description": "Per-slot auth tokens, positional."},
@@ -254,6 +263,8 @@ manifest = {
                  "content": text(read("docs/PROTOCOL.md"))},
                 {"id": "carrying.md", "title": "Writing a tandem prompt",
                  "content": text(read("docs/CARRYING.md"))},
+                {"id": "training.md", "title": "Prompt diversity and training",
+                 "content": text(read("TRAINING.md"))},
             ],
         },
         "config_schema": CONFIG_SCHEMA,

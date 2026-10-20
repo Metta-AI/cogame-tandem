@@ -1,0 +1,9 @@
+{
+  "canonical": "You are one of two cogs carrying a couch through a warehouse obstacle course.",
+  "plain": "You and one other cog carry a couch through an obstacle course inside a warehouse.",
+  "numbered": "1. There are two cogs, including you. 2. Together you carry a couch. 3. The route is a warehouse obstacle course.",
+  "questions": "Who carries the couch? You and one other cog. Where must you carry it? Through a warehouse obstacle course.",
+  "reordered": "A warehouse obstacle course lies ahead of the couch carried by two cogs. You are one of those cogs.",
+  "heldout-briefing": "Carry briefing: two cogs, one of them you, must transport a couch through a warehouse obstacle course.",
+  "heldout-reference": "Task: carry a couch through a warehouse obstacle course. Carriers: two cogs. Your role: one of the carriers."
+}

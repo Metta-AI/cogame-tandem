@@ -41,7 +41,7 @@ import
   bitworld/runtime,
   bitworld/spriteprotocol,
   mummy,
-  sim, roster, control, orders, decide,
+  sim, roster, control, orders, decide, prompts,
   global, broadcast, replays, replay_runtime, events, wire_constants
 
 when defined(posix):
@@ -475,6 +475,9 @@ proc runServerLoop*(
   runtimeConfig = RuntimeConfig()
 ) =
   initAppState()
+  let wording = promptSelection(
+    if runtimeConfig.config.len > 0: parseJson(runtimeConfig.config)
+    else: newJObject())
   # The wall-clock budget starts HERE, before the board bake and before the
   # listener opens, so every second the process spends is charged against the
   # 660 s engine stop (`wallClockBudgetSeconds`) and the 720 s settle
@@ -570,6 +573,7 @@ proc runServerLoop*(
         if found:
           socket.send($(%*{
             "type": "turn", "turn": call.turn,
+            "prompt_configuration": {"promptVariant": $wording.variant, "promptSeed": wording.seed},
             "view": parseJson(call.user)
           }), TextMessage)
       while getMonoTime() < deadline:

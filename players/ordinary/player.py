@@ -11,12 +11,14 @@ from urllib.parse import parse_qs, urlsplit
 
 import websocket
 from capture import Capture
+from prompts import PromptSelection
 from policy import default_order, prompt_for
 
 
 def choose(turn: dict, generator, strategy: str) -> tuple[dict, str, str, str]:
     view = turn["view"]
-    system, user = prompt_for(view, strategy)
+    selection = PromptSelection.from_config(turn["prompt_configuration"])
+    system, user = prompt_for(view, strategy, selection)
     if generator:
         completion = generator(
             [
@@ -30,15 +32,24 @@ def choose(turn: dict, generator, strategy: str) -> tuple[dict, str, str, str]:
         return action, "trained", system, user
     if strategy:
         endpoint = os.environ.get("COWORLD_LLM_ENDPOINT", "").rstrip("/")
-        model = (os.environ.get("COWORLD_LLM_MODEL", "anthropic/claude-haiku-4.5")
-                 if endpoint else os.environ.get("ANTHROPIC_MODEL", "claude-haiku-4-5-20251001"))
-        body = json.dumps({"model": model,
-                           "max_tokens": 500, "system": system,
-                           "messages": [{"role": "user", "content": user}]}).encode()
+        model = (
+            os.environ.get("COWORLD_LLM_MODEL", "anthropic/claude-haiku-4.5")
+            if endpoint
+            else os.environ.get("ANTHROPIC_MODEL", "claude-haiku-4-5-20251001")
+        )
+        body = json.dumps(
+            {"model": model, "max_tokens": 500, "system": system, "messages": [{"role": "user", "content": user}]}
+        ).encode()
         request = urllib.request.Request(
-            (f"{endpoint}/v1/messages" if endpoint else "https://api.anthropic.com/v1/messages"), body,
-            {"Content-Type": "application/json", "anthropic-version": "2023-06-01",
-             "x-api-key": ("sidecar" if endpoint else os.environ["ANTHROPIC_API_KEY"])}, method="POST")
+            (f"{endpoint}/v1/messages" if endpoint else "https://api.anthropic.com/v1/messages"),
+            body,
+            {
+                "Content-Type": "application/json",
+                "anthropic-version": "2023-06-01",
+                "x-api-key": ("sidecar" if endpoint else os.environ["ANTHROPIC_API_KEY"]),
+            },
+            method="POST",
+        )
         with urllib.request.urlopen(request, timeout=6) as response:
             action = json.loads(json.load(response)["content"][0]["text"])
         return action, "llm", system, user
@@ -77,7 +88,7 @@ def main() -> None:
     socket.settimeout(120)
     socket.send(packet, opcode=websocket.ABNF.OPCODE_BINARY)
     re_registered = False
-    pending: dict[int, tuple[str, str, dict, str]] = {}
+    pending: dict[int, tuple[str, str, dict, str, PromptSelection]] = {}
     while True:
         opcode, data = socket.recv_data(control_frame=True)
         if opcode == websocket.ABNF.OPCODE_CLOSE:
@@ -93,16 +104,19 @@ def main() -> None:
         frame = json.loads(data)
         kind = frame["type"]
         if kind == "turn":
-            if frame["turn"] not in pending:
-                action, source, system, user = choose(frame, generator, strategy)
-                pending[frame["turn"]] = (system, user, action, source)
-            _, _, action, source = pending[frame["turn"]]
-            socket.send(json.dumps({"type": "decision", "turn": frame["turn"],
-                                    "action": action, "source": source}))
+            action, source, system, user = choose(frame, generator, strategy)
+            pending[frame["turn"]] = (
+                system,
+                user,
+                action,
+                source,
+                PromptSelection.from_config(frame["prompt_configuration"]),
+            )
+            socket.send(json.dumps({"type": "decision", "turn": frame["turn"], "action": action, "source": source}))
         elif kind == "decision_result":
-            system, user, action, source = pending.pop(frame["turn"])
+            system, user, action, source, selection = pending.pop(frame["turn"])
             if artifact and frame["accepted"]:
-                artifact.record(system, user, action, source, frame["turn"])
+                artifact.record(system, user, action, source, frame["turn"], selection)
         elif kind == "final":
             if pending:
                 raise RuntimeError("Tandem ended with unacknowledged decisions")

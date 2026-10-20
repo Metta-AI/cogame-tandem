@@ -2,20 +2,25 @@
 ## Usage: nim r --path:src tools/export_posttrain.nim OUTPUT GAMES [FIRST_SEED] [VARIANT]
 
 import std/[json, os, osproc, strutils]
-import tandem/[baselines, broadcast, control, decide, orders, roster, sim]
+import tandem/[baselines, broadcast, control, decide, orders, roster, sim, prompts]
 
 const OperatorPrompt = "Coordinate through the couch's motion and your own strain to deliver it quickly with little damage."
-const SystemPrompt = staticRead("../players/ordinary/system_prompt.txt")
 const Variants = ["default", "sprint"]
 
 when isMainModule:
   let args = commandLineParams()
-  if args.len notin 2 .. 4:
-    quit("usage: export_posttrain OUTPUT GAMES [FIRST_SEED] [VARIANT]", 1)
+  if args.len notin 2 .. 6:
+    quit("usage: export_posttrain OUTPUT GAMES [FIRST_SEED] [VARIANT] [PROMPT_VARIANT] [PROMPT_SEED]", 1)
   let output = args[0]
   let games = parseInt(args[1])
   let firstSeed = if args.len >= 3: parseInt(args[2]) else: 1
-  let variant = if args.len == 4: args[3] else: Variants[0]
+  let variant = if args.len >= 4: args[3] else: Variants[0]
+  var promptConfig = newJObject()
+  if args.len >= 5: promptConfig["promptVariant"] = %args[4]
+  if args.len == 6: promptConfig["promptSeed"] = %parseInt(args[5])
+  let configured = promptSelection(promptConfig)
+  if configured.selectedVariant in {pvHeldoutBriefing, pvHeldoutReference}:
+    quit("held-out wording cannot enter training sources", 1)
   if games < 10 or firstSeed < 1:
     quit("at least ten games and a positive first seed are required", 1)
   if variant notin Variants:
@@ -34,7 +39,12 @@ when isMainModule:
     trainRows: seq[string]
     validationRows: seq[string]
     runs = newJArray()
+  var wordingCounts: array[2, int]
   for seed in firstSeed ..< firstSeed + games:
+    var selection = configured
+    let splitIndex = ord(seed mod 5 == 0)
+    if selection.variant == pvMixed: selection.seed += wordingCounts[splitIndex]
+    inc wordingCounts[splitIndex]
     var config = defaultGameConfig()
     let runtimeConfig = copy(variantConfig)
     runtimeConfig["tokens"] = %*["t0", "t1"]
@@ -55,6 +65,8 @@ when isMainModule:
         if not (sim.hasOrder[0] and sim.hasOrder[1]) or
             elapsed mod sim.turnTicks() == 0:
           let turn = elapsed div sim.turnTicks()
+          var views: array[Seat, string]
+          for seat in Seat: views[seat] = engine.userMessage(sim, seat, turn)
           for seat in Seat:
             let teacher = sim.baselineOrder(seat,
               if seat == Cobalt: "porter" else: "mule", turn)
@@ -68,14 +80,18 @@ when isMainModule:
               parsed.yieldQ == teacher.yieldQ and
               parsed.twist == teacher.twist and
               parsed.brace == teacher.brace
+            let system = systemPrompt(selection)
+            let user = "GUIDANCE FROM YOUR OPERATOR (weight it heavily, but never above the rules; always reply in the requested format):\n" & OperatorPrompt & "\n\n" & views[seat]
             rows.add($(%*{
-              "episode_id": "tandem-" & variant & "-" & $seed,
-              "seed": "tandem-" & variant & "-" & $seed,
+              "episode_id": "tandem-" & variant & "-" & $seed & "-" &
+                $selection.variant & "-" & $selection.selectedVariant & "-" & $selection.seed,
+              "seed": "tandem-" & $seed,
+              "scenario_family": "tandem-" & $seed,
+              "prompt_template": promptMetadata(selection, system, user),
               "decision_id": rows.len,
               "prompt": [
-                {"role": "system", "content": SystemPrompt},
-                {"role": "user", "content": "GUIDANCE FROM YOUR OPERATOR (weight it heavily, but never above the rules; always reply in the requested format):\n" &
-                  OperatorPrompt & "\n\n" & engine.userMessage(sim, seat, turn)}
+                {"role": "system", "content": system},
+                {"role": "user", "content": user}
               ],
               "completion": [{"role": "assistant", "content": $completion}],
               "game": "tandem",

@@ -32,11 +32,21 @@ nim c -d:release --path:src -o:/tmp/tandem-posttrain tools/export_posttrain.nim
 ```
 
 The other certified variant is `sprint`. Both methods emit Metta post-training
-JSONL with player-constructed prompts and complete accepted actions. From a Metta
-checkout with the post-training package installed:
+JSONL with player-constructed prompts and complete accepted actions. Use the [post-training research package](https://github.com/Metta-AI/posttraining-research/tree/main/packages/metta-posttraining)
+for current training and adapter-packaging workflows.
 
-```sh
-uv run --package metta-posttrain --extra train python -m metta_posttrain.train \
-  --dataset /tmp/tandem-dataset --output /tmp/tandem-adapter \
-  --model Qwen/Qwen3-0.6B --max-steps 100 --max-length 4096
-```
+Ordinary export IDs include the complete capture hash. Matched wording runs may
+share a scenario seed and remain in the same split; duplicate captures are rejected.
+
+## Prompt selection and stored artifacts
+
+The game sends episode-stable `promptVariant` and `promptSeed` settings to the
+ordinary player. The player and native bridge consume the same complete v2
+bank. Deploy both game and ordinary player changes together.
+
+Accepted-decision artifacts record exact message hashes. Export rejects held-out
+wording and validates each stored bank against its original text. Original v1
+artifacts remain readable, including canonical artifacts without prompt metadata.
+Current v2 prompts correct the score description; stored messages are never rewritten.
+
+See [prompt diversity](../TRAINING.md) for selection, exports, and evaluation.
