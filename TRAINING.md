@@ -24,6 +24,7 @@ Use `sprint` for the other certified variant. Exports contain `train.jsonl`,
 `validation.jsonl`, and `manifest.json`. Every fifth seed belongs to validation.
 Mixed wording cycles separately within each split. Scenario families group the
 same course seed across variants, and rows retain exact message hashes.
+Episode IDs include selected wording and prompt seed to distinguish matched exports.
 Both source views are frozen before orders are installed. Existing output
 directories are rejected. Teacher orders use the native parser and simulator.
 
