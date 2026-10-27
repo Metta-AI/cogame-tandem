@@ -248,6 +248,40 @@ proc capRecord*(text: string): string =
 # The tolerant parser
 # --------------------------------------------------------------------------
 
+proc extractOrderObject*(text: string): JsonNode =
+  ## Match the ordinary player: accept response framing, never skip a malformed
+  ## first object or repair its JSON. Quantisation remains in parseOrder.
+  try:
+    result = parseJson(text)
+  except JsonParsingError:
+    let start = text.find('{')
+    if start < 0:
+      raise newException(ValueError, "Tandem response contains no JSON object")
+    var
+      depth = 0
+      inString = false
+      escaped = false
+    for i in start ..< text.len:
+      let ch = text[i]
+      if inString:
+        if escaped: escaped = false
+        elif ch == '\\': escaped = true
+        elif ch == '"': inString = false
+      else:
+        case ch
+        of '"': inString = true
+        of '{': inc depth
+        of '}':
+          dec depth
+          if depth == 0:
+            result = parseJson(text[start .. i])
+            break
+        else: discard
+    if result.isNil:
+      raise newException(ValueError, "Tandem response has an unterminated JSON object")
+  if result.kind != JObject:
+    raise newException(ValueError, "Tandem response must be a JSON object")
+
 proc numberOf(node: JsonNode, ok: var bool): float =
   ## Accepts a JSON number OR a numeric string; anything else, or a non-finite
   ## value, reports `ok = false`.

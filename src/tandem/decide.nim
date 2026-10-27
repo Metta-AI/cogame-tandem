@@ -380,7 +380,7 @@ proc turn*(
           if parsed.usable:
             evidence.parsedAction = parsed.order.actionJson()
             if evidence.origin == aoModel:
-              let independent = parseOrder(parseJson(evidence.response.getStr()),
+              let independent = parseOrder(extractOrderObject(evidence.response.getStr()),
                 engine.previous[seat], engine.hasPrevious[seat], sim.porterOrder(seat, turnIndex), turnIndex)
               if not independent.usable or independent.order.actionJson() != evidence.parsedAction:
                 raise newException(TandemError, "model response differs from submitted order")

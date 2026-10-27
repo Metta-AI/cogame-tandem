@@ -16,6 +16,20 @@ from policy import default_order, prompt_for
 from prompts import PromptSelection
 
 
+def parse_order_response(text: str) -> dict:
+    """Read the first JSON object through response framing without repairing JSON."""
+    try:
+        action = json.loads(text)
+    except json.JSONDecodeError:
+        start = text.find("{")
+        if start < 0:
+            raise ValueError("Tandem response contains no JSON object") from None
+        action, _ = json.JSONDecoder().raw_decode(text, start)
+    if not isinstance(action, dict):
+        raise TypeError("Tandem response must be a JSON object")
+    return action
+
+
 def choose(
     turn: dict, generator, strategy: str, evidence: dict | None = None, stage=None
 ) -> tuple[dict, str, str, str]:
@@ -29,9 +43,7 @@ def choose(
                 {"role": "user", "content": user},
             ]
         )
-        action = json.loads(completion)
-        if not isinstance(action, dict):
-            raise ValueError("trained Tandem decision must be a JSON object")
+        action = parse_order_response(completion)
         return action, "trained", system, user
     if strategy:
         endpoint = os.environ.get("COWORLD_LLM_ENDPOINT", "").rstrip("/")
@@ -129,9 +141,7 @@ def choose(
                     sampled_token_ids=sampling["completion_token_ids"],
                     behavior_logprobs=sampling.get("behavior_log_probs"),
                 )
-        action = json.loads(text)
-        if not isinstance(action, dict):
-            raise ValueError("Tandem prompt response must be a JSON object")
+        action = parse_order_response(text)
         return action, "llm", system, user
     return default_order(view), "heuristic", system, user
 
