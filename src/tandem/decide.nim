@@ -18,13 +18,15 @@
 ## intersect.
 
 import
-  std/[json, monotimes, os, strutils, times],
-  sim, orders, baselines
+  std/[json, monotimes, options, os, strutils, times],
+  bitworld/decision_trajectory,
+  sim, orders, baselines, prompts
 
 type
   BatchCall* = object
     seat*: int
     turn*: int
+    attempt*: int
     system*, user*: string
 
   BatchReply* = object
@@ -32,6 +34,7 @@ type
     ok*: bool
     text*: string
     error*: string
+    evidence*: JsonNode
 
   BatchFn* = proc (
     calls: seq[BatchCall],
@@ -43,6 +46,13 @@ type
     baseline*: string
     label*: string
     connected*: bool
+
+  TurnDecision* = object
+    observation*: JsonNode
+    attempts*: seq[DecisionAttempt]
+    selectedAttemptId*: Option[string]
+    executedAction*: JsonNode
+    status*: ActionStatus
 
   TurnEngine* = ref object
     batch*: BatchFn
@@ -56,6 +66,7 @@ type
     hasBatched*: bool
     records*: seq[string]      ## the replay chat records this turn produced.
     externalAccepted*: array[Seat, bool]
+    decisions*: array[Seat, TurnDecision]
 
 # --------------------------------------------------------------------------
 # The per-seat view
@@ -244,7 +255,8 @@ proc turn*(
   engine: TurnEngine,
   sim: var SimServer,
   turnIndex: int,
-  elapsedSeconds: int
+  elapsedSeconds: int,
+  selection = PromptSelection()
 ) =
   ## Runs one decision turn: the inter-batch floor, then at most one parallel
   ## batch plus at most one parallel retry, all inside a monotonic
@@ -254,6 +266,9 @@ proc turn*(
   ## integers.
   engine.records.setLen(0)
   engine.externalAccepted = [false, false]
+  for seat in Seat:
+    engine.decisions[seat] = TurnDecision(status: asFallback,
+      observation: engine.seatViewJson(sim, seat, turnIndex))
   let
     deadline = getMonoTime() + initDuration(
       milliseconds = max(1, sim.config.turnBudgetMs))
@@ -300,6 +315,7 @@ proc turn*(
       calls.add BatchCall(
         seat: ord(seat),
         turn: turnIndex,
+        attempt: 1,
         system: "",
         user: engine.userMessage(sim, seat, turnIndex))
 
@@ -331,8 +347,17 @@ proc turn*(
     for reply in replies:
       let seat = Seat(reply.seat and 1)
       var cause = ""
+      var evidence = newDecisionAttempt($turnIndex & "-" & $ord(seat) & "-" & $attempt,
+        engine.policies[seat].label, aoUnknown)
+      try:
+        if reply.evidence != nil and reply.evidence.kind != JNull:
+          evidence = readAttemptEvidence(reply.evidence)
+          evidence.attemptId = $turnIndex & "-" & $ord(seat) & "-" & $attempt
+          if evidence.origin in {aoTeacher, aoHuman}: evidence.origin = aoUnknown
+      except CatchableError:
+        cause = "parse_error"
       var detail = reply.error
-      if not reply.ok:
+      if not reply.ok or cause.len > 0:
         # curl words its deadline several ways ("Timeout was reached",
         # "Operation timed out after ...", "Connection timed out"), so match on
         # the lowercased text and on both spellings.
@@ -353,6 +378,15 @@ proc turn*(
             engine.hasPrevious[seat], sim.porterOrder(seat, turnIndex),
             turnIndex)
           if parsed.usable:
+            evidence.parsedAction = parsed.order.actionJson()
+            if evidence.origin == aoModel:
+              let independent = parseOrder(parseJson(evidence.response.getStr()),
+                engine.previous[seat], engine.hasPrevious[seat], sim.porterOrder(seat, turnIndex), turnIndex)
+              if not independent.usable or independent.order.actionJson() != evidence.parsedAction:
+                raise newException(TandemError, "model response differs from submitted order")
+            evidence.accepted = true
+            engine.decisions[seat].selectedAttemptId = some(evidence.attemptId)
+            engine.decisions[seat].status = asAccepted
             resolved[seat] = parsed.order
             if engine.policies[seat].kind == pkExternal:
               resolved[seat].source = osExternal
@@ -369,11 +403,18 @@ proc turn*(
         engine.addRecord(%*{
           "k": "fallback", "turn": turnIndex, "seat": ord(seat),
           "attempt": attempt, "cause": cause,
-          "detail": clipRunes(detail, MaxDetailRunes)
+          "detail": cause
         })
         for call in calls:
           if call.seat == reply.seat:
-            retry.add call
+            var nextCall = call
+            nextCall.attempt = attempt + 1
+            retry.add nextCall
+      if cause.len > 0:
+        evidence.rejectionReason = some(if evidence.origin == aoModel and evidence.rawResponse.kind == JNull:
+          "incomplete_native_attempt: " & cause & " before HTTP response"
+          else: cause & (if detail.len > 0: ": " & detail else: ""))
+      engine.decisions[seat].attempts.add(evidence)
     calls = retry
     inc attempt
 
@@ -394,6 +435,20 @@ proc turn*(
     of osFallback: inc sim.stats[seat].fallbackTurns
     of osExternal: discard
     of osScripted: discard
+    engine.decisions[seat].executedAction = resolved[seat].actionJson()
+    if resolved[seat].source == osScripted:
+      let intentional = engine.policies[seat].connected and engine.policies[seat].kind == pkScripted
+      var teacher = newDecisionAttempt($turnIndex & "-" & $ord(seat) & "-teacher",
+        "scripted-" & engine.policies[seat].baseline, if intentional: aoTeacher else: aoFallback)
+      teacher.prompt = %*[{"role": "system", "content": selection.systemPrompt()},
+        {"role": "user", "content": $engine.decisions[seat].observation}]
+      teacher.parsedAction = resolved[seat].actionJson()
+      teacher.response = %($teacher.parsedAction)
+      teacher.accepted = intentional
+      engine.decisions[seat].attempts.add(teacher)
+      if intentional:
+        engine.decisions[seat].selectedAttemptId = some(teacher.attemptId)
+        engine.decisions[seat].status = asAccepted
     # The record is the ONE source: the server writes it to the replay AND
     # folds it back through `applyRecord`, which is what INSTALLS the order.
     engine.addRecord(orderJson(sim, seat, resolved[seat]))

@@ -139,6 +139,11 @@ proc orderReplyJson*(order: Order): JsonNode =
     "say": order.say
   }
 
+proc actionJson*(order: Order): JsonNode =
+  ## Exact parser output, including quantised execution values; no transport metadata.
+  %*{"note": order.note, "say": order.say,
+    "q": [order.driveX, order.driveY, order.effort, order.yieldQ, order.twist, order.brace]}
+
 proc orderJson*(sim: SimServer, seat: Seat, order: Order): JsonNode =
   ## The `order` replay chat record — the action log. `q` carries the EXACT
   ## quantised integers the sim hashed, so playback re-installs them bit for

@@ -36,12 +36,12 @@
 ## partial replay instead of an unattributable episode.
 
 import
-  std/[json, locks, monotimes, nativesockets, os, strutils, tables, times],
+  std/[json, locks, monotimes, nativesockets, options, os, strutils, tables, times],
   bitworld/client as bitworldClient,
-  bitworld/runtime,
+  bitworld/[runtime, decision_trajectory],
   bitworld/spriteprotocol,
   mummy,
-  sim, roster, control, orders, decide, prompts,
+  sim, roster, control, orders, decide, prompts, training_capture,
   global, broadcast, replays, replay_runtime, events, wire_constants
 
 when defined(posix):
@@ -61,7 +61,7 @@ type
     loadingReplayUri: string
     currentReplayUri: string
     chatMessages: Table[WebSocket, string]
-    externalReplies: Table[WebSocket, string]
+    externalReplies: Table[WebSocket, seq[string]]
     pendingExternalTurn: int
     playerIndices: Table[WebSocket, int]
     playerAddresses: Table[WebSocket, string]
@@ -114,7 +114,7 @@ var replayBytesForClients {.threadvar.}: string
 proc initAppState() =
   initLock(appState.lock)
   appState.chatMessages = initTable[WebSocket, string]()
-  appState.externalReplies = initTable[WebSocket, string]()
+  appState.externalReplies = initTable[WebSocket, seq[string]]()
   appState.pendingExternalTurn = -1
   appState.playerIndices = initTable[WebSocket, int]()
   appState.playerAddresses = initTable[WebSocket, string]()
@@ -321,8 +321,9 @@ proc websocketHandler(
         withLock appState.lock:
           if appState.pendingExternalTurn >= 0 and
               websocket in appState.playerIndices and
-              message.data.len <= 8192:
-            appState.externalReplies[websocket] = message.data
+              message.data.len <= 1_048_576 and
+              appState.externalReplies.mgetOrPut(websocket, @[]).len < 4:
+            appState.externalReplies.mgetOrPut(websocket, @[]).add(message.data)
     elif message.kind == BinaryMessage:
       {.gcsafe.}:
         withLock appState.lock:
@@ -530,6 +531,11 @@ proc runServerLoop*(
   var
     lastTick = getMonoTime()
     collectedEvents: seq[SimEvent] = @[]
+  let trajectoryUri = getEnv(CogameSaveTrajectoryUriEnv)
+  let capture = if trajectoryUri.len > 0 and not replayLoaded:
+      some(newMatchCapture(getEnv("COWORLD_EPISODE_ID"), getEnv("COWORLD_GAME_VERSION"),
+        getEnv("COWORLD_SOURCE_REVISION"), config.seed))
+    else: none(MatchCapture)
   sim.collectEvents = eventsPath.len > 0
   replayWriter.lastMasks = newSeq[uint8](SeatCount)
 
@@ -572,7 +578,8 @@ proc runServerLoop*(
         result.add(BatchReply(seat: call.seat, error: "timeout"))
         if found:
           socket.send($(%*{
-            "type": "turn", "turn": call.turn,
+            "type": "turn", "turn": call.turn, "seat": call.seat,
+            "attempt_id": $call.turn & "-" & $call.seat & "-" & $call.attempt,
             "prompt_configuration": {"promptVariant": $wording.variant, "promptSeed": wording.seed},
             "view": parseJson(call.user)
           }), TextMessage)
@@ -581,16 +588,42 @@ proc runServerLoop*(
         for i, call in calls:
           if result[i].ok or not foundSockets[i]:
             continue
-          var raw = ""
+          var messages: seq[string]
           {.gcsafe.}:
             withLock appState.lock:
               if sockets[i] in appState.externalReplies:
-                raw = appState.externalReplies[sockets[i]]
+                messages = appState.externalReplies[sockets[i]]
                 appState.externalReplies.del(sockets[i])
-          if raw.len > 0:
-            result[i] = BatchReply(seat: call.seat, ok: true, text: raw)
-          else:
-            complete = false
+          for raw in messages:
+            if result[i].ok: break
+            try:
+              let answer = parseJson(raw)
+              let expectedId = $call.turn & "-" & $call.seat & "-" & $call.attempt
+              let suppliedId = answer{"attempt_id"}.getStr()
+              if suppliedId.len > 0 and suppliedId != expectedId: continue
+              if answer.hasKey("training_attempt") and suppliedId != expectedId: continue
+              let kind = answer{"type"}.getStr()
+              if kind notin ["attempt_started", "attempt_response", "decision"]: continue
+              if answer.hasKey("training_attempt"):
+                let supplied = answer["training_attempt"]
+                discard readAttemptEvidence(supplied)
+                let previous = result[i].evidence
+                if previous != nil:
+                  for key in ["attempt_id", "policy", "origin", "prompt", "request"]:
+                    if supplied[key] != previous[key]:
+                      raise newException(ValueError, "private attempt identity changed")
+                  if previous["raw_response"].kind != JNull:
+                    for key in ["raw_response", "response_headers", "provider_request_id", "platform_call_id"]:
+                      if supplied[key] != previous[key]:
+                        raise newException(ValueError, "private provider response changed")
+                result[i].evidence = supplied
+              if kind == "decision":
+                result[i].ok = true
+                result[i].text = raw
+            except CatchableError:
+              result[i].ok = true
+              result[i].text = "{}"
+          if not result[i].ok: complete = false
         if complete:
           break
         sleep(10)
@@ -651,6 +684,9 @@ proc runServerLoop*(
       if externalSockets.len > 0:
         sleep(500)
     replayWriter.closeReplayWriter()
+    if capture.isSome:
+      capture.get().finishMatch(sim)
+      capture.get().trajectory.writeEventsToUri(trajectoryUri)
     if saveReplayPath.len > 0 and fileExists(saveReplayPath):
       echo "Replay written: ", saveReplayPath,
         " (", getFileSize(saveReplayPath), " bytes)"
@@ -824,7 +860,8 @@ proc runServerLoop*(
             if opening or elapsedTicks mod sim.turnTicks() == 0:
               let seconds = int((getMonoTime() - episodeStart).inSeconds)
               let turnIndex = elapsedTicks div sim.turnTicks()
-              engine.turn(sim, turnIndex, seconds)
+              engine.turn(sim, turnIndex, seconds, wording)
+              if capture.isSome: capture.get().beginTurn(engine, sim, wording)
               # The records are the ONE source: writing them into the replay
               # AND folding them back through `applyRecord` is what installs
               # each seat's quantised order into hashed state, so the live sim
@@ -846,6 +883,9 @@ proc runServerLoop*(
           # written so ctf's plumbing is untouched, and never changes.
           replayWriter.writeInputFrameMasks(tickTime(sim.tickCount), ZeroMasks)
           sim.stepSim()
+          if capture.isSome:
+            capture.get().recordTick(sim)
+            if sim.phase == GameOver: capture.get().flushTurn(sim.tickCount, true)
           replayWriter.writeHash(uint32(sim.tickCount), sim.gameHash())
           if sim.collectEvents:
             for event in sim.events:
