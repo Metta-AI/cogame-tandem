@@ -50,3 +50,23 @@ artifacts remain readable, including canonical artifacts without prompt metadata
 Current v2 prompts correct the score description; stored messages are never rewritten.
 
 See [prompt diversity](../TRAINING.md) for selection, exports, and evaluation.
+
+## Game-owned private episode capture
+
+Set `COGAME_SAVE_TRAJECTORY_URI` on the game and provide `COWORLD_EPISODE_ID`,
+`COWORLD_GAME_VERSION`, and `COWORLD_SOURCE_REVISION`. The game writes canonical
+Bitworld decision JSONL separately from the public replay. It records private
+observations, every received model attempt including failures and retries, exact
+request/response bodies, received headers and native call IDs when available,
+the selected parsed order, its quantised execution values, post-tick hashes,
+and the terminal status and results. Missing HTTP responses are marked as
+incomplete attempts. The ordinary player uses the game-issued seat and attempt
+identity for sidecar requests and private evidence.
+
+Registered scripted carriers have teacher origin; disconnected or unregistered
+seats and engine fallbacks cannot claim it. Accepted means parser and execution
+agree, not that teacher quality or sampled-model eligibility is established.
+The older optional player ZIP format remains readable by its existing exporter;
+it contains accepted decisions only and does not substitute for this game-owned
+failure and execution evidence. Keep all private artifacts out of public replay
+bundles and source control.
