@@ -37,3 +37,6 @@ replay-viewer/dist/
 *.log
 .scan/
 __pycache__/
+
+# Local private capture evidence and validation outputs.
+.scratch/
