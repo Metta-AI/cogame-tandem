@@ -60,3 +60,41 @@ From Metta, use `recipes.external.coworld_metta_rl.train` or
 `["/tmp/tandem-train-bridge", "<source>/coworld_manifest_template.json", "default"]`
 and `players=2`. Replace `default` with `sprint` for the second certified
 variant. Set a finite timestep limit for either trainer.
+
+## SLIME checkpoints through the ordinary player
+
+Serve a verified full SLIME/Hugging Face export with the maintained Metta
+`serve-checkpoint` gateway and native Messages enabled. Use one shared server
+for independent worlds so the ordinary players do not each load model weights.
+The gateway verifies the model once and writes `attestation.json`; mount that
+small identity file into each player. Supply the same private gateway key to
+`METTA_CHECKPOINT_API_KEY` at the server and `TANDEM_CHECKPOINT_API_KEY` at the
+player, through the existing secret mechanism.
+
+Configure the ordinary Python player with:
+
+```sh
+export TANDEM_CHECKPOINT_ENDPOINT=https://your-private-checkpoint-gateway
+export TANDEM_CHECKPOINT_ATTESTATION=/player/attestation.json
+export PLAYER_PROMPT='the exact operator prompt used for training'
+# Supply TANDEM_CHECKPOINT_API_KEY through the secret mechanism.
+```
+
+The player uses the attested model name, authenticates its existing
+`/v1/messages` request, and checks checkpoint, tokenizer and chat-template
+response identities before accepting an action. A missing or different identity,
+wrong model or HTTP error rejects the attempt; it never falls back to a provider.
+The bearer key is excluded from captured request bodies and training evidence.
+The ordinary 500-output-token request, six-second client timeout, native prompt,
+action parser and game deadlines remain unchanged. Preserve the exact training
+operator prompt; an empty prompt is also supported in checkpoint mode.
+
+These settings are optional. Without them the existing provider and heuristic
+paths are unchanged. `TANDEM_ADAPTER_DIR` retains the historical local PEFT path;
+it is not the full SLIME checkpoint path and cannot be combined with checkpoint
+HTTP. The player image needs no Torch, PEFT or model weights for HTTP serving.
+Actual GPU serving, timing within ordinary deadlines and hosted gameplay must
+still be qualified with the selected verified export.
+
+Run the real HTTP caller checks and existing ordinary player checks with
+`python -m unittest discover -s players/ordinary -p 'test_*.py' -v`.

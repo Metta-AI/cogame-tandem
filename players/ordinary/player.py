@@ -12,6 +12,7 @@ from urllib.parse import parse_qs, urlsplit
 
 import websocket
 from capture import Capture
+from checkpoint_client import CheckpointClient
 from policy import default_order, prompt_for
 from prompts import PromptSelection
 
@@ -31,11 +32,18 @@ def parse_order_response(text: str) -> dict:
 
 
 def choose(
-    turn: dict, generator, strategy: str, evidence: dict | None = None, stage=None
+    turn: dict,
+    generator,
+    strategy: str,
+    evidence: dict | None = None,
+    stage=None,
+    checkpoint: CheckpointClient | None = None,
 ) -> tuple[dict, str, str, str]:
     view = turn["view"]
     selection = PromptSelection.from_config(turn["prompt_configuration"])
     system, user = prompt_for(view, strategy, selection)
+    if generator and checkpoint:
+        raise ValueError("Checkpoint HTTP and legacy adapter modes cannot be combined")
     if generator:
         completion = generator(
             [
@@ -45,13 +53,15 @@ def choose(
         )
         action = parse_order_response(completion)
         return action, "trained", system, user
-    if strategy:
-        endpoint = os.environ.get("COWORLD_LLM_ENDPOINT", "").rstrip("/")
+    if strategy or checkpoint:
+        endpoint = checkpoint.endpoint if checkpoint else os.environ.get("COWORLD_LLM_ENDPOINT", "").rstrip("/")
         model = (
             os.environ.get("COWORLD_LLM_MODEL", "anthropic/claude-haiku-4.5")
             if endpoint
             else os.environ.get("ANTHROPIC_MODEL", "claude-haiku-4-5-20251001")
         )
+        if checkpoint:
+            model = checkpoint.identity["model"]
         body = json.dumps(
             {
                 "model": model,
@@ -75,27 +85,20 @@ def choose(
             if stage:
                 stage("attempt_started", evidence)
         request = urllib.request.Request(
-            (
-                f"{endpoint}/v1/messages"
-                if endpoint
-                else "https://api.anthropic.com/v1/messages"
-            ),
+            (f"{endpoint}/v1/messages" if endpoint else "https://api.anthropic.com/v1/messages"),
             body,
             {
                 "Content-Type": "application/json",
                 "anthropic-version": "2023-06-01",
-                **(
-                    {"X-Coworld-Player-Slot": str(turn["seat"])}
-                    if endpoint and "seat" in turn
-                    else {}
-                ),
+                **({"Authorization": f"Bearer {checkpoint.key}"} if checkpoint else {}),
+                **({"X-Coworld-Player-Slot": str(turn["seat"])} if endpoint and "seat" in turn else {}),
                 **({} if endpoint else {"x-api-key": os.environ["ANTHROPIC_API_KEY"]}),
             },
             method="POST",
         )
         started = time.monotonic()
         try:
-            response = urllib.request.urlopen(request, timeout=6)
+            response = checkpoint.open(request, timeout=6) if checkpoint else urllib.request.urlopen(request, timeout=6)
         except urllib.error.HTTPError as error:
             response = error
         with response:
@@ -120,12 +123,12 @@ def choose(
                 stage("attempt_response", evidence)
         if not 200 <= status < 300:
             raise ValueError(f"provider HTTP {status}")
+        if checkpoint:
+            checkpoint.validate_headers(headers)
         payload = json.loads(raw)
-        text = "".join(
-            block.get("text", "")
-            for block in payload["content"]
-            if block.get("type", "text") == "text"
-        )
+        if checkpoint and payload.get("model") != checkpoint.identity["model"]:
+            raise ValueError("Checkpoint response model differs from the configured attestation")
+        text = "".join(block.get("text", "") for block in payload["content"] if block.get("type", "text") == "text")
         if evidence is not None:
             evidence.update(
                 response=text,
@@ -149,19 +152,16 @@ def choose(
 def main() -> None:
     url = os.environ["COWORLD_PLAYER_WS_URL"]
     slot = int(parse_qs(urlsplit(url).query)["slot"][0])
+    checkpoint = CheckpointClient.from_environment()
     adapter = os.environ.get("TANDEM_ADAPTER_DIR")
     generator = None
     if adapter:
-        from posttrain import TransformersGenerator
+        from posttrain import TransformersGenerator  # noqa: PLC0415
 
         generator = TransformersGenerator(Path(adapter))
     strategy = os.environ.get("PLAYER_PROMPT", "")
-    backend = "trained" if adapter else "llm" if strategy else "heuristic"
-    artifact = (
-        Capture(slot, backend)
-        if os.environ.get("TANDEM_CAPTURE_TRAINING") == "1"
-        else None
-    )
+    backend = "checkpoint" if checkpoint else "trained" if adapter else "llm" if strategy else "heuristic"
+    artifact = Capture(slot, backend) if os.environ.get("TANDEM_CAPTURE_TRAINING") == "1" else None
     registration = json.dumps(
         {
             "type": "register",
@@ -223,9 +223,7 @@ def main() -> None:
                     "behavior_logprobs",
                 )
             }
-            evidence.update(
-                attempt_id=frame["attempt_id"], policy=backend, origin="unknown"
-            )
+            evidence.update(attempt_id=frame["attempt_id"], policy=backend, origin="unknown")
 
             def stage(kind: str, retained: dict, issued: dict = frame) -> None:
                 socket.send(
@@ -240,9 +238,7 @@ def main() -> None:
                 )
 
             try:
-                action, source, system, user = choose(
-                    frame, generator, strategy, evidence, stage
-                )
+                action, source, system, user = choose(frame, generator, strategy, evidence, stage, checkpoint)
             except (OSError, ValueError, KeyError, TypeError) as error:
                 # Send an explicit rejected attempt so the game can retry inside its deadline.
                 action, source = {}, "fallback"
