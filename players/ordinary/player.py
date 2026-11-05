@@ -15,6 +15,7 @@ from capture import Capture
 from checkpoint_client import CheckpointClient
 from policy import default_order, prompt_for
 from prompts import PromptSelection
+from startup import ready_before_game
 
 
 def parse_order_response(text: str) -> dict:
@@ -212,6 +213,11 @@ def main() -> None:
         }
     ).encode()
     packet = bytes([0x81]) + len(registration).to_bytes(2, "little") + registration
+    with ready_before_game():
+        play(url, slot, packet, checkpoint, generator, strategy, artifact, backend)
+
+
+def play(url, slot, packet, checkpoint, generator, strategy, artifact, backend):
     deadline = time.monotonic() + 90
     while True:
         try:
