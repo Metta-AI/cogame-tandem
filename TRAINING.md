@@ -115,3 +115,25 @@ option for a fresh qualified teacher comparison, not permission to reinterpret
 earlier episodes or treat fixture responses as training targets.
 
 Protocol reference: https://openrouter.ai/docs/guides/best-practices/reasoning-tokens
+
+## Hosted player warmup
+
+For an ordinary player that uses the hosted LLM sidecar or a checkpoint, register
+its immutable policy version with `startup` port `8765`, path `/healthz`, and a
+bounded `timeout_seconds` (for example, `120`). The existing upload CLI exposes
+these as `--startup-port 8765 --startup-path /healthz --startup-timeout 120`.
+The runner then initializes the player and proxy before starting the game.
+
+After importing the caller and loading its configured checkpoint or adapter,
+`player.py` serves readiness and waits for the runner's `COWORLD_PLAYER_START_URL`
+to return 200 before opening the ordinary player socket. Readiness stays available
+through the game. The optional `TANDEM_STARTUP_PORT` must match the registered port;
+`TANDEM_STARTUP_WAIT_SECONDS` bounds the separate pre-game start-signal wait (default
+120, maximum 120 seconds). Explicit settings require the runner's start URL, so a
+missing warmup contract fails rather than silently taking the legacy startup path.
+With no startup declaration or settings, the original connection path remains.
+
+This moves initialization before gameplay; it does not change the game's score,
+physics, private views, prompts, 500-token provider requests, six-second HTTP
+limit, action windows or connection retry budget. Retain the startup declaration
+alongside the policy/checkpoint identity in training and hosted evaluation.
