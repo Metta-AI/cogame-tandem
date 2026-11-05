@@ -183,6 +183,33 @@ def choose(
 def main() -> None:
     url = os.environ["COWORLD_PLAYER_WS_URL"]
     slot = int(parse_qs(urlsplit(url).query)["slot"][0])
+    if "PLAYER_SCRIPTED" in os.environ:
+        if any(
+            os.environ.get(name)
+            for name in (
+                "PLAYER_PROMPT",
+                "TANDEM_ADAPTER_DIR",
+                "TANDEM_CHECKPOINT_ENDPOINT",
+                "TANDEM_CHECKPOINT_API_KEY",
+                "TANDEM_CHECKPOINT_ATTESTATION",
+            )
+        ):
+            raise ValueError("Scripted transport cannot use a model or checkpoint")
+        scripted = os.environ["PLAYER_SCRIPTED"].strip().lower()
+        if scripted not in {"porter", "mule"}:
+            scripted = "porter"
+        registration = json.dumps(
+            {
+                "type": "register",
+                "scripted": scripted,
+                "policy": os.environ.get("PLAYER_POLICY_LABEL", "").strip()[:48]
+                or scripted,
+            }
+        ).encode()
+        packet = bytes([0x81]) + len(registration).to_bytes(2, "little") + registration
+        with ready_before_game():
+            play_scripted(url, packet)
+        return
     checkpoint = CheckpointClient.from_environment()
     adapter = os.environ.get("TANDEM_ADAPTER_DIR")
     generator = None
@@ -217,17 +244,47 @@ def main() -> None:
         play(url, slot, packet, checkpoint, generator, strategy, artifact, backend)
 
 
-def play(url, slot, packet, checkpoint, generator, strategy, artifact, backend):
+def connect_player(url):
     deadline = time.monotonic() + 90
     while True:
         try:
-            socket = websocket.create_connection(url, timeout=10)
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise TimeoutError("Tandem connection exceeded its 90-second limit")
+            socket = websocket.create_connection(url, timeout=min(10, remaining))
             break
-        except OSError:
+        except (OSError, websocket.WebSocketTimeoutException):
             if time.monotonic() >= deadline:
                 raise
             time.sleep(0.25)
     socket.settimeout(120)
+    return socket
+
+
+def play_scripted(url, packet):
+    """Register the native server-side baseline; never compute an order here."""
+    socket = connect_player(url)
+    try:
+        socket.send(packet, opcode=websocket.ABNF.OPCODE_BINARY)
+        re_registered = False
+        while True:
+            try:
+                opcode, _ = socket.recv_data(control_frame=True)
+            except (OSError, websocket.WebSocketException):
+                break
+            if opcode == websocket.ABNF.OPCODE_CLOSE:
+                break
+            if not re_registered:
+                socket.send(packet, opcode=websocket.ABNF.OPCODE_BINARY)
+                re_registered = True
+            socket.send(bytes([0x85]), opcode=websocket.ABNF.OPCODE_BINARY)
+    finally:
+        socket.close()
+    print("ordinary scripted transport finished")
+
+
+def play(url, slot, packet, checkpoint, generator, strategy, artifact, backend):
+    socket = connect_player(url)
     socket.send(packet, opcode=websocket.ABNF.OPCODE_BINARY)
     re_registered = False
     pending: dict[int, tuple[str, str, dict, str, PromptSelection]] = {}

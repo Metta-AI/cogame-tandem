@@ -137,3 +137,23 @@ This moves initialization before gameplay; it does not change the game's score,
 physics, private views, prompts, 500-token provider requests, six-second HTTP
 limit, action windows or connection retry budget. Retain the startup declaration
 alongside the policy/checkpoint identity in training and hosted evaluation.
+
+### Bounded transport for the native scripted partner
+
+The ordinary Python image can also carry the native server-side baseline:
+use its existing `python player.py` command with `PLAYER_SCRIPTED=porter`
+(or `mule`). It sends the same registration, once-only resend and Ready packets
+as `/bin/tandem-player`; the unchanged game computes every order and force.
+`PLAYER_POLICY_LABEL` uses the native 48-rune cap. An empty or unrecognized
+scripted value keeps the native porter default. Model prompts, adapters and
+checkpoint settings conflict with this mode and refuse before connecting.
+No model is invoked and no learner targets are exported.
+
+Both transports share the Python caller's connection path: each WebSocket
+upgrade is bounded to ten seconds inside the existing 90-second startup limit,
+with a 250ms retry delay. The 120-second receive bound is unchanged. Optional
+policy startup uses the same health/start gate described above, so the scripted
+partner can be ready before the game without changing rules or Lobby horizons.
+The Nim client's unbounded HTTP upgrade motivated this transport option;
+a hosted Lobby failure alone does not establish the cause of that connection
+stall. Use a separately source-qualified owned policy/image before hosted use.

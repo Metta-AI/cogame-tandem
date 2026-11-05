@@ -40,6 +40,11 @@ class NativeStartupSystemTest(unittest.TestCase):
         allowed, attempted, connected = Event(), Event(), Event()
         registrations = []
         startup_requests = []
+        websocket_requests = []
+        scripted = kind.startswith("scripted-")
+        gate_kind = (
+            "legacy" if kind == "scripted-legacy" else "warm" if scripted else kind
+        )
 
         class Handler(BaseHTTPRequestHandler):
             protocol_version = "HTTP/1.1"
@@ -48,26 +53,35 @@ class NativeStartupSystemTest(unittest.TestCase):
                 if self.path == "/start":
                     attempted.set()
                     startup_requests.append(time.monotonic())
-                    if kind == "reset" and len(startup_requests) <= 2:
+                    if gate_kind == "reset" and len(startup_requests) <= 2:
                         self.connection.setsockopt(
                             socket.SOL_SOCKET, socket.SO_LINGER, struct.pack("ii", 1, 0)
                         )
                         self.connection.close()
                         self.close_connection = True
                         return
-                    if kind == "read-timeout" and len(startup_requests) == 1:
+                    if gate_kind == "read-timeout" and len(startup_requests) == 1:
                         time.sleep(0.5)
                         self.connection.close()
                         self.close_connection = True
                         return
                     self.send_response(
-                        401 if kind == "denied" else 200 if allowed.is_set() else 503
+                        401
+                        if gate_kind == "denied"
+                        else 200
+                        if allowed.is_set()
+                        else 503
                     )
                     self.send_header("Content-Length", "0")
                     self.end_headers()
                     return
                 self.connection.settimeout(3)
                 connected.set()
+                websocket_requests.append(time.monotonic())
+                if kind == "scripted-stalled-upgrade" and len(websocket_requests) == 1:
+                    time.sleep(11)
+                    self.close_connection = True
+                    return
                 key = self.headers["Sec-WebSocket-Key"]
                 accept = base64.b64encode(
                     hashlib.sha1(
@@ -87,6 +101,24 @@ class NativeStartupSystemTest(unittest.TestCase):
                 ):
                     raise RuntimeError("Missing ordinary Sprite registration")
                 registrations.append(json.loads(data[3:]))
+                if scripted:
+                    # The first real binary frame triggers the same once-only
+                    # registration resend and Ready packet as the Nim player.
+                    self.wfile.write(b"\x82\x01\x00")
+                    self.wfile.flush()
+                    opcode, data = read_frame(self.rfile)
+                    if opcode != 2 or json.loads(data[3:]) != registrations[0]:
+                        raise RuntimeError("Scripted registration resend differs")
+                    opcode, data = read_frame(self.rfile)
+                    if opcode != 2 or data != b"\x85":
+                        raise RuntimeError("Scripted transport did not send Ready")
+                    self.wfile.write(b"\x88\x00")
+                    self.wfile.flush()
+                    opcode, _ = read_frame(self.rfile)
+                    if opcode != 8:
+                        raise RuntimeError("Missing scripted WebSocket close")
+                    self.close_connection = True
+                    return
                 final = json.dumps(
                     {
                         "type": "final",
@@ -122,7 +154,14 @@ class NativeStartupSystemTest(unittest.TestCase):
             NO_PROXY="127.0.0.1,localhost",
             no_proxy="127.0.0.1,localhost",
         )
-        if kind != "legacy":
+        if scripted:
+            env["PLAYER_SCRIPTED"] = (
+                " MULE " if kind == "scripted-legacy" else " PORTER "
+            )
+            env["PLAYER_POLICY_LABEL"] = "🛋" * 60
+            if kind == "scripted-conflict":
+                env["PLAYER_PROMPT"] = "Must refuse before any model call"
+        if gate_kind != "legacy":
             env.update(
                 COWORLD_PLAYER_START_URL=f"http://127.0.0.1:{server.server_port}/start",
                 TANDEM_STARTUP_PORT=str(port),
@@ -137,7 +176,10 @@ class NativeStartupSystemTest(unittest.TestCase):
             text=True,
         )
         try:
-            if kind in {"warm", "reset", "read-timeout"}:
+            if (
+                gate_kind in {"warm", "reset", "read-timeout"}
+                and kind != "scripted-conflict"
+            ):
                 deadline = time.monotonic() + 3
                 while True:
                     try:
@@ -155,16 +197,37 @@ class NativeStartupSystemTest(unittest.TestCase):
                     connected.is_set(), "Player connected before start permission"
                 )
                 allowed.set()
-            stdout, stderr = child.communicate(timeout=5)
-            if kind in {"legacy", "warm", "reset", "read-timeout"}:
+            stdout, stderr = child.communicate(
+                timeout=15 if kind == "scripted-stalled-upgrade" else 5
+            )
+            if kind == "scripted-conflict":
+                self.assertNotEqual(child.returncode, 0)
+                self.assertIn("Scripted transport cannot use a model", stderr)
+                self.assertFalse(connected.is_set())
+            elif gate_kind in {"legacy", "warm", "reset", "read-timeout"}:
                 self.assertEqual(child.returncode, 0, stderr)
                 self.assertTrue(connected.is_set())
                 self.assertEqual(len(registrations), 1)
                 self.assertEqual(
                     registrations[0],
-                    {"type": "register", "scripted": None, "policy": "heuristic"},
+                    {
+                        "type": "register",
+                        "scripted": "mule" if kind == "scripted-legacy" else "porter",
+                        "policy": "🛋" * 48,
+                    }
+                    if scripted
+                    else {"type": "register", "scripted": None, "policy": "heuristic"},
                 )
-                self.assertIn("ordinary player finished", stdout)
+                self.assertIn(
+                    "ordinary scripted transport finished"
+                    if scripted
+                    else "ordinary player finished",
+                    stdout,
+                )
+                self.assertEqual(
+                    len(websocket_requests),
+                    2 if kind == "scripted-stalled-upgrade" else 1,
+                )
             else:
                 self.assertNotEqual(child.returncode, 0)
                 self.assertIn(
@@ -202,6 +265,18 @@ class NativeStartupSystemTest(unittest.TestCase):
 
     def test_start_gate_timeout_is_bounded_and_cleans_up(self):
         self.run_case("timeout")
+
+    def test_scripted_transport_uses_native_registration_and_ready(self):
+        self.run_case("scripted-warm")
+
+    def test_scripted_transport_preserves_legacy_start(self):
+        self.run_case("scripted-legacy")
+
+    def test_scripted_transport_retries_a_stalled_upgrade(self):
+        self.run_case("scripted-stalled-upgrade")
+
+    def test_scripted_model_conflict_refuses_before_connect(self):
+        self.run_case("scripted-conflict")
 
 
 if __name__ == "__main__":
