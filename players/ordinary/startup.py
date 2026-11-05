@@ -48,10 +48,14 @@ def ready_before_game():
         thread.start()
         try:
             deadline = time.monotonic() + seconds
+            consecutive_failures = 0
             while True:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise TimeoutError("Game start gate exceeded its bounded wait")
                 try:
                     with urllib.request.urlopen(
-                        url, timeout=min(2, seconds)
+                        url, timeout=min(0.25, remaining)
                     ) as response:
                         if response.status != 200:
                             raise ValueError(
@@ -61,12 +65,17 @@ def ready_before_game():
                 except urllib.error.HTTPError as error:
                     if error.code != 503:
                         raise
-                except urllib.error.URLError:
-                    # The game/worker may not exist yet during pre-game warmup.
-                    pass
-                if time.monotonic() >= deadline:
+                    consecutive_failures = 0
+                except (urllib.error.URLError, ConnectionError, TimeoutError):
+                    # A worker handoff may reset a healthy gate. Two immediate
+                    # retries avoid adding a game tick, then retain the backoff.
+                    consecutive_failures += 1
+                    if consecutive_failures <= 2:
+                        continue
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
                     raise TimeoutError("Game start gate exceeded its bounded wait")
-                time.sleep(min(0.05, seconds))
+                time.sleep(min(0.05, remaining))
             yield
         finally:
             server.shutdown()

@@ -39,6 +39,7 @@ class NativeStartupSystemTest(unittest.TestCase):
     def run_case(self, kind):
         allowed, attempted, connected = Event(), Event(), Event()
         registrations = []
+        startup_requests = []
 
         class Handler(BaseHTTPRequestHandler):
             protocol_version = "HTTP/1.1"
@@ -46,6 +47,19 @@ class NativeStartupSystemTest(unittest.TestCase):
             def do_GET(self):
                 if self.path == "/start":
                     attempted.set()
+                    startup_requests.append(time.monotonic())
+                    if kind == "reset" and len(startup_requests) <= 2:
+                        self.connection.setsockopt(
+                            socket.SOL_SOCKET, socket.SO_LINGER, struct.pack("ii", 1, 0)
+                        )
+                        self.connection.close()
+                        self.close_connection = True
+                        return
+                    if kind == "read-timeout" and len(startup_requests) == 1:
+                        time.sleep(0.5)
+                        self.connection.close()
+                        self.close_connection = True
+                        return
                     self.send_response(
                         401 if kind == "denied" else 200 if allowed.is_set() else 503
                     )
@@ -123,7 +137,7 @@ class NativeStartupSystemTest(unittest.TestCase):
             text=True,
         )
         try:
-            if kind == "warm":
+            if kind in {"warm", "reset", "read-timeout"}:
                 deadline = time.monotonic() + 3
                 while True:
                     try:
@@ -142,7 +156,7 @@ class NativeStartupSystemTest(unittest.TestCase):
                 )
                 allowed.set()
             stdout, stderr = child.communicate(timeout=5)
-            if kind in {"legacy", "warm"}:
+            if kind in {"legacy", "warm", "reset", "read-timeout"}:
                 self.assertEqual(child.returncode, 0, stderr)
                 self.assertTrue(connected.is_set())
                 self.assertEqual(len(registrations), 1)
@@ -173,6 +187,12 @@ class NativeStartupSystemTest(unittest.TestCase):
 
     def test_ready_before_game_then_original_socket(self):
         self.run_case("warm")
+
+    def test_transient_connection_resets_before_start(self):
+        self.run_case("reset")
+
+    def test_transient_read_timeout_before_start(self):
+        self.run_case("read-timeout")
 
     def test_legacy_connection_without_startup(self):
         self.run_case("legacy")
