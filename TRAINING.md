@@ -98,3 +98,20 @@ still be qualified with the selected verified export.
 
 Run the real HTTP caller checks and existing ordinary player checks with
 `python -m unittest discover -s players/ordinary -p 'test_*.py' -v`.
+
+## Optional native-provider thinking control
+
+The ordinary player accepts `COWORLD_LLM_THINKING=disabled` for a provider
+that supports disabling reasoning through the Anthropic Messages protocol.
+This adds exactly `thinking: {"type": "disabled"}` to the request and records
+the same setting in the decoder evidence. Check the selected model's current
+controls before requesting it; this setting cannot disable mandatory reasoning.
+
+Omitting the variable preserves the original request and decoder. Empty or
+other values fail before HTTP. Provider thinking controls cannot override the
+authenticated checkpoint path. The native 500-token cap, six-second HTTP timeout,
+prompts, action parser, game rules and horizons stay fixed. This is a configuration
+option for a fresh qualified teacher comparison, not permission to reinterpret
+earlier episodes or treat fixture responses as training targets.
+
+Protocol reference: https://openrouter.ai/docs/guides/best-practices/reasoning-tokens
