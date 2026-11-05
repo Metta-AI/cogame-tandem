@@ -52,7 +52,9 @@ class NativeCheckpointSystemTest(unittest.TestCase):
                 raw = json.dumps(
                     {
                         "model": response_model,
-                        "content": [{"type": "text", "text": json.dumps(default_order(VIEW))}],
+                        "content": [
+                            {"type": "text", "text": json.dumps(default_order(VIEW))}
+                        ],
                         "stop_reason": "end_turn",
                     }
                 ).encode()
@@ -87,7 +89,9 @@ print(json.dumps({'action':action,'source':source,'evidence':evidence,
         thread = Thread(target=server.serve_forever, daemon=True)
         thread.start()
         try:
-            with tempfile.TemporaryDirectory(prefix="tandem-checkpoint-http-system-") as temporary:
+            with tempfile.TemporaryDirectory(
+                prefix="tandem-checkpoint-http-system-"
+            ) as temporary:
                 attestation = Path(temporary) / "attestation.json"
                 attestation.write_text(json.dumps(identity))
                 env = {
@@ -105,6 +109,7 @@ print(json.dumps({'action':action,'source':source,'evidence':evidence,
                         [sys.executable, "-c", code],
                         cwd=Path(__file__).resolve().parent,
                         env=env | {"TEST_STRATEGY": strategy},
+                        check=False,
                         capture_output=True,
                         text=True,
                         timeout=15,
@@ -121,29 +126,58 @@ print(json.dumps({'action':action,'source':source,'evidence':evidence,
                     self.assertEqual(value["evidence"]["decoder"], {"max_tokens": 500})
                     self.assertEqual(value["evidence"]["model_identity"], "a" * 64)
                     self.assertEqual(value["evidence"]["tokenizer_identity"], "b" * 64)
-                    self.assertEqual(value["evidence"]["chat_template_sha256"], "c" * 64)
+                    self.assertEqual(
+                        value["evidence"]["chat_template_sha256"], "c" * 64
+                    )
                     self.assertNotIn(key, result.stdout + result.stderr)
                     self.assertEqual(requests[-1][0], "/v1/messages")
                     self.assertEqual(requests[-1][1], "Bearer " + key)
-                    self.assertEqual(set(requests[-1][2]), {"model", "system", "messages", "max_tokens"})
+                    self.assertEqual(
+                        set(requests[-1][2]),
+                        {"model", "system", "messages", "max_tokens"},
+                    )
                     self.assertEqual(requests[-1][2]["model"], identity["model"])
 
-                for mode in [*headers, "missing", "wrong-model", "unauthorized", "redirect"]:
+                env["COWORLD_LLM_THINKING"] = "disabled"
+                before = len(requests)
+                result = run()
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("cannot override a checkpoint", result.stderr)
+                self.assertEqual(
+                    len(requests),
+                    before,
+                    "Provider control must fail before checkpoint HTTP",
+                )
+                del env["COWORLD_LLM_THINKING"]
+
+                for mode in [
+                    *headers,
+                    "missing",
+                    "wrong-model",
+                    "unauthorized",
+                    "redirect",
+                ]:
                     with self.subTest(mode=mode):
                         profile["kind"] = mode
                         before = len(requests)
                         result = run()
                         self.assertNotEqual(result.returncode, 0)
-                        self.assertEqual(len(requests), before + 1, "No retry or provider fallback")
+                        self.assertEqual(
+                            len(requests), before + 1, "No retry or provider fallback"
+                        )
                         self.assertIn("ValueError", result.stderr)
                         self.assertNotIn(key, result.stdout + result.stderr)
 
                 profile["kind"] = "valid"
-                attestation.write_text(json.dumps(identity | {"checkpoint_sha256": "invalid"}))
+                attestation.write_text(
+                    json.dumps(identity | {"checkpoint_sha256": "invalid"})
+                )
                 before = len(requests)
                 result = run()
                 self.assertNotEqual(result.returncode, 0)
-                self.assertEqual(len(requests), before, "Invalid expected identity fails before HTTP")
+                self.assertEqual(
+                    len(requests), before, "Invalid expected identity fails before HTTP"
+                )
         finally:
             server.shutdown()
             server.server_close()

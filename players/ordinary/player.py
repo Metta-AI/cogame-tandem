@@ -54,7 +54,11 @@ def choose(
         action = parse_order_response(completion)
         return action, "trained", system, user
     if strategy or checkpoint:
-        endpoint = checkpoint.endpoint if checkpoint else os.environ.get("COWORLD_LLM_ENDPOINT", "").rstrip("/")
+        endpoint = (
+            checkpoint.endpoint
+            if checkpoint
+            else os.environ.get("COWORLD_LLM_ENDPOINT", "").rstrip("/")
+        )
         model = (
             os.environ.get("COWORLD_LLM_MODEL", "anthropic/claude-haiku-4.5")
             if endpoint
@@ -62,14 +66,22 @@ def choose(
         )
         if checkpoint:
             model = checkpoint.identity["model"]
-        body = json.dumps(
-            {
-                "model": model,
-                "max_tokens": 500,
-                "system": system,
-                "messages": [{"role": "user", "content": user}],
-            }
-        ).encode()
+        thinking = os.environ.get("COWORLD_LLM_THINKING")
+        if thinking is not None and thinking != "disabled":
+            raise ValueError("COWORLD_LLM_THINKING must be omitted or disabled")
+        if thinking is not None and checkpoint:
+            raise ValueError("Provider thinking controls cannot override a checkpoint")
+        request_body = {
+            "model": model,
+            "max_tokens": 500,
+            "system": system,
+            "messages": [{"role": "user", "content": user}],
+        }
+        decoder = {"max_tokens": 500}
+        if thinking is not None:
+            request_body["thinking"] = {"type": "disabled"}
+            decoder["thinking"] = {"type": "disabled"}
+        body = json.dumps(request_body).encode()
         payload = json.loads(body)
         if evidence is not None:
             evidence.update(
@@ -80,25 +92,37 @@ def choose(
                     {"role": "system", "content": system},
                     {"role": "user", "content": user},
                 ],
-                decoder={"max_tokens": 500},
+                decoder=decoder,
             )
             if stage:
                 stage("attempt_started", evidence)
         request = urllib.request.Request(
-            (f"{endpoint}/v1/messages" if endpoint else "https://api.anthropic.com/v1/messages"),
+            (
+                f"{endpoint}/v1/messages"
+                if endpoint
+                else "https://api.anthropic.com/v1/messages"
+            ),
             body,
             {
                 "Content-Type": "application/json",
                 "anthropic-version": "2023-06-01",
                 **({"Authorization": f"Bearer {checkpoint.key}"} if checkpoint else {}),
-                **({"X-Coworld-Player-Slot": str(turn["seat"])} if endpoint and "seat" in turn else {}),
+                **(
+                    {"X-Coworld-Player-Slot": str(turn["seat"])}
+                    if endpoint and "seat" in turn
+                    else {}
+                ),
                 **({} if endpoint else {"x-api-key": os.environ["ANTHROPIC_API_KEY"]}),
             },
             method="POST",
         )
         started = time.monotonic()
         try:
-            response = checkpoint.open(request, timeout=6) if checkpoint else urllib.request.urlopen(request, timeout=6)
+            response = (
+                checkpoint.open(request, timeout=6)
+                if checkpoint
+                else urllib.request.urlopen(request, timeout=6)
+            )
         except urllib.error.HTTPError as error:
             response = error
         with response:
@@ -127,8 +151,14 @@ def choose(
             checkpoint.validate_headers(headers)
         payload = json.loads(raw)
         if checkpoint and payload.get("model") != checkpoint.identity["model"]:
-            raise ValueError("Checkpoint response model differs from the configured attestation")
-        text = "".join(block.get("text", "") for block in payload["content"] if block.get("type", "text") == "text")
+            raise ValueError(
+                "Checkpoint response model differs from the configured attestation"
+            )
+        text = "".join(
+            block.get("text", "")
+            for block in payload["content"]
+            if block.get("type", "text") == "text"
+        )
         if evidence is not None:
             evidence.update(
                 response=text,
@@ -156,12 +186,24 @@ def main() -> None:
     adapter = os.environ.get("TANDEM_ADAPTER_DIR")
     generator = None
     if adapter:
-        from posttrain import TransformersGenerator  # noqa: PLC0415
+        from posttrain import TransformersGenerator
 
         generator = TransformersGenerator(Path(adapter))
     strategy = os.environ.get("PLAYER_PROMPT", "")
-    backend = "checkpoint" if checkpoint else "trained" if adapter else "llm" if strategy else "heuristic"
-    artifact = Capture(slot, backend) if os.environ.get("TANDEM_CAPTURE_TRAINING") == "1" else None
+    backend = (
+        "checkpoint"
+        if checkpoint
+        else "trained"
+        if adapter
+        else "llm"
+        if strategy
+        else "heuristic"
+    )
+    artifact = (
+        Capture(slot, backend)
+        if os.environ.get("TANDEM_CAPTURE_TRAINING") == "1"
+        else None
+    )
     registration = json.dumps(
         {
             "type": "register",
@@ -223,7 +265,9 @@ def main() -> None:
                     "behavior_logprobs",
                 )
             }
-            evidence.update(attempt_id=frame["attempt_id"], policy=backend, origin="unknown")
+            evidence.update(
+                attempt_id=frame["attempt_id"], policy=backend, origin="unknown"
+            )
 
             def stage(kind: str, retained: dict, issued: dict = frame) -> None:
                 socket.send(
@@ -238,7 +282,9 @@ def main() -> None:
                 )
 
             try:
-                action, source, system, user = choose(frame, generator, strategy, evidence, stage, checkpoint)
+                action, source, system, user = choose(
+                    frame, generator, strategy, evidence, stage, checkpoint
+                )
             except (OSError, ValueError, KeyError, TypeError) as error:
                 # Send an explicit rejected attempt so the game can retry inside its deadline.
                 action, source = {}, "fallback"
