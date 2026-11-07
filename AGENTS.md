@@ -7,7 +7,7 @@ Orientation for coding agents working in this repo. The rules live in
 [docs/plans/2026-08-23-tandem-design.md](docs/plans/2026-08-23-tandem-design.md).
 This file covers the things that are easy to get wrong.
 
-Tandem is forked from **`Metta-AI/coworld-ctf`** (paintbot). Every convention
+Tandem is forked from **`softmax-universe/coworld-ctf`** (paintbot). Every convention
 there holds here unless the design note says otherwise.
 
 ## The shape of the thing

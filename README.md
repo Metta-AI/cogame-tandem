@@ -72,7 +72,7 @@ image as a normal Coworld player. Package a trained adapter and set
 | `src/tandem/{orders,baselines,decide}.nim` | the order schema, the two baselines and the turn engine |
 | `players/ordinary/` | prompt, heuristic and trained player decisions |
 | `src/tandem/{server,roster,replays,replay_runtime,broadcast,global,rig_art}.nim` | the episode server, the replay codec and the renderer |
-| `client/` | the broadcast chrome, inherited from `Metta-AI/coworld-ctf` |
+| `client/` | the broadcast chrome, inherited from `softmax-universe/coworld-ctf` |
 | `replay-viewer/` | the static wasm replay bundle |
 | `tests/` | the determinism gate and the rest of the suite |
 
