@@ -12,7 +12,7 @@ import json
 import pathlib
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
-SOURCE = "https://github.com/Metta-AI/cogame-tandem/tree/main"
+SOURCE = "https://github.com/softmax-universe/cogame-tandem/tree/main"
 IMAGE = "{{TANDEM_IMAGE}}"
 
 

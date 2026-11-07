@@ -1,4 +1,4 @@
-# CI for a Coworld game repo (Metta-AI/cogame-tandem).
+# CI for a Coworld game repo (softmax-universe/cogame-tandem).
 #
 # Goes to:  .github/workflows/ci.yml  in the coworld repo.
 # Substitute: tandem  (lowercase game slug, e.g. bullwhip)

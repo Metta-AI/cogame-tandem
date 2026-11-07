@@ -32,7 +32,7 @@ nim c -d:release --path:src -o:/tmp/tandem-posttrain tools/export_posttrain.nim
 ```
 
 The other certified variant is `sprint`. Both methods emit Metta post-training
-JSONL with player-constructed prompts and complete accepted actions. Use the [post-training research package](https://github.com/Metta-AI/posttraining-research/tree/main/packages/metta-posttraining)
+JSONL with player-constructed prompts and complete accepted actions. Use the [post-training research package](https://github.com/softmax-universe/posttraining-research/tree/main/packages/metta-posttraining)
 for current training and adapter-packaging workflows.
 
 Ordinary export IDs include the complete capture hash. Matched wording runs may
